@@ -1,0 +1,54 @@
+# 运行模式配置 Schema
+# 此文件定义 .claude/dev-state/run-config.yaml 的格式
+
+---
+
+# 运行模式
+mode: "interactive"   # interactive | auto-loop
+
+# ──────────────────────────────────────────────────
+# Interactive 模式参数
+# ──────────────────────────────────────────────────
+interactive:
+  # 编码后自动运行 verify 脚本（不等用户指令）
+  auto_verify: true
+
+  # 自动运行测试（不等用户指令）
+  auto_test: true
+
+  # 自动 git commit（设为 false 时需用户确认）
+  auto_commit: false
+
+  # 必须暂停等待用户确认的节点
+  pause_points:
+    - requirement_approval     # 需求规格书确认
+    - task_plan_approval       # 任务拆分确认
+    - review_result            # 审查结果通报
+    - iteration_complete       # 迭代完成汇总
+
+# ──────────────────────────────────────────────────
+# Auto Loop 模式参数
+# ──────────────────────────────────────────────────
+auto_loop:
+  # 单任务最大重试次数（L0/L1 失败时重试）
+  max_retries_per_task: 2
+
+  # 最大并行 Agent 数
+  max_parallel_agents: 2
+
+  # 审查失败后是否停止整个循环
+  stop_on_review_fail: true
+
+  # 检查点写入频率
+  # per_task: 每完成一个任务写一次
+  # per_batch: 每完成一批任务写一次
+  checkpoint_frequency: "per_task"
+
+  # 连续失败 N 次后停止整个循环
+  max_consecutive_failures: 3
+
+  # 单任务执行超时（秒）
+  timeout_per_task: 1800
+
+  # 进度报告间隔（秒，写入 checkpoint）
+  report_interval: 300

@@ -1,0 +1,58 @@
+{
+  "$schema": "Feature checklist format for init-mode",
+  "$description": "所有特性初始标记 FAIL，经验证后才能标记 PASS",
+
+  "format": {
+    "project": "项目名称 (string)",
+    "mode": "init",
+    "created_at": "ISO 8601 时间戳",
+    "features": [
+      {
+        "id": "F001 (格式: F + 3位数字)",
+        "name": "特性名称 — 描述完整的端到端数据流",
+        "status": "FAIL | PASS",
+        "priority": "critical | high | medium | low",
+        "slice": "所属垂直切片名称",
+        "criteria": [
+          {
+            "id": "F001-C1 (格式: 特性ID + -C + 序号)",
+            "desc": "具体的可验证标准",
+            "status": "FAIL | PASS"
+          }
+        ],
+        "verify_script": "scripts/verify/F001.py (验证脚本路径)"
+      }
+    ]
+  },
+
+  "rules": {
+    "初始状态": "所有 feature.status 和 criteria.status 必须为 FAIL",
+    "标记 PASS": "只有当所有 criteria 全部为 PASS 时，feature 才能标记 PASS",
+    "谁可标记": "只有 verify 脚本和 Reviewer Agent 可以标记 PASS",
+    "不可回退": "一旦 PASS 不可回退为 FAIL（除非 regression 发现问题）"
+  },
+
+  "example": {
+    "project": "grzsk",
+    "mode": "init",
+    "created_at": "2026-02-19T14:00:00",
+    "features": [
+      {
+        "id": "F001",
+        "name": "截屏采集 → Syncthing → OCR → Milvus → 搜索",
+        "status": "FAIL",
+        "priority": "critical",
+        "slice": "screenshot",
+        "criteria": [
+          {"id": "F001-C1", "desc": "截屏文件生成 (WebP, ≤1920px)", "status": "FAIL"},
+          {"id": "F001-C2", "desc": "sidecar JSON 包含必需字段", "status": "FAIL"},
+          {"id": "F001-C3", "desc": "Syncthing 同步完成 (≥95%)", "status": "FAIL"},
+          {"id": "F001-C4", "desc": "OCR 提取文字非空", "status": "FAIL"},
+          {"id": "F001-C5", "desc": "向量入库到 Milvus text_records", "status": "FAIL"},
+          {"id": "F001-C6", "desc": "搜索 API 返回相关结果 (score>0.5)", "status": "FAIL"}
+        ],
+        "verify_script": "scripts/verify/F001.py"
+      }
+    ]
+  }
+}

@@ -1,0 +1,50 @@
+# 重构任务模板（iterate-mode 使用）
+
+id: "{{TASK_ID}}"
+type: "refactor"
+iteration: "{{ITERATION_ID}}"
+title: "{{TITLE}}"
+
+# 重构动机
+motivation: |
+  {{WHY_REFACTOR}}
+
+# 不变量（重构后必须保持不变的行为）
+invariants:
+  - "{{INVARIANT_1}}"
+  - "{{INVARIANT_2}}"
+
+# 技术方案
+design:
+  approach: |
+    {{APPROACH_DESCRIPTION}}
+  why_this_approach: |
+    {{WHY_CHOSEN}}
+
+# 受影响文件
+affected_files:
+  - "{{FILE_PATH_1}}"
+
+# 验收标准
+acceptance_criteria:
+  - id: "{{TASK_ID}}-AC1"
+    desc: "所有现有测试通过（零修改测试代码）"
+    status: FAIL
+  - id: "{{TASK_ID}}-AC2"
+    desc: "行为完全一致（不变量全部满足）"
+    status: FAIL
+  - id: "{{TASK_ID}}-AC3"
+    desc: "代码质量指标改善"
+    status: FAIL
+
+# 回归测试（重构的核心保障）
+regression_test: "运行全量 L1 + L2，零测试代码修改，结果 = 基线"
+
+# 状态
+status: pending
+owner: ""
+retries: 0
+depends: []
+commits: []
+notes: ""
+review_result: null

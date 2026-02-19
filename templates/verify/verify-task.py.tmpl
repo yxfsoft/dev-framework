@@ -1,0 +1,68 @@
+#!/usr/bin/env python3
+"""
+{{TASK_ID}} 验收脚本
+需求: {{TASK_TITLE}}
+生成时间: {{GENERATED_AT}}
+
+此脚本由 Analyst Agent 生成，Developer Agent 不可修改。
+零 Mock，使用真实环境验证。
+"""
+
+import sys
+import traceback
+
+
+def verify_ac1():
+    """{{AC1_DESC}}"""
+    {{AC1_VERIFY_CODE}}
+
+
+def verify_ac2():
+    """{{AC2_DESC}}"""
+    {{AC2_VERIFY_CODE}}
+
+
+# 按需追加更多 verify_acN 函数
+
+
+def main():
+    results = []
+    criteria = [
+        ("{{TASK_ID}}-AC1", "{{AC1_DESC}}", verify_ac1),
+        ("{{TASK_ID}}-AC2", "{{AC2_DESC}}", verify_ac2),
+    ]
+
+    for ac_id, desc, fn in criteria:
+        try:
+            fn()
+            results.append((ac_id, "PASS", desc, ""))
+            print(f"  PASS  {ac_id}: {desc}")
+        except AssertionError as e:
+            results.append((ac_id, "FAIL", desc, str(e)))
+            print(f"  FAIL  {ac_id}: {desc}")
+            print(f"        原因: {e}")
+        except Exception as e:
+            results.append((ac_id, "ERROR", desc, traceback.format_exc()))
+            print(f"  ERROR {ac_id}: {desc}")
+            print(f"        异常: {e}")
+
+    passed = sum(1 for _, s, _, _ in results if s == "PASS")
+    total = len(results)
+    print(f"\n{'='*50}")
+    print(f"{{TASK_ID}} 验收结果: {passed}/{total} PASS")
+
+    if passed < total:
+        print("\n未通过的验收标准:")
+        for ac_id, status, desc, detail in results:
+            if status != "PASS":
+                print(f"  {status} {ac_id}: {desc}")
+                if detail:
+                    print(f"        {detail[:200]}")
+        sys.exit(1)
+    else:
+        print("全部通过!")
+        sys.exit(0)
+
+
+if __name__ == "__main__":
+    main()

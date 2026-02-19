@@ -1,0 +1,58 @@
+# 新功能任务模板（iterate-mode 使用，在已有项目上新增功能）
+
+id: "{{TASK_ID}}"
+type: "new_feature"
+iteration: "{{ITERATION_ID}}"
+title: "{{TITLE}}"
+
+# 功能描述
+description: |
+  {{FEATURE_DESCRIPTION}}
+
+# 集成点（与现有代码如何连接）
+integration_points:
+  - module: "{{MODULE_NAME}}"
+    how: "{{HOW_TO_INTEGRATE}}"
+
+# 数据流
+data_flow: |
+  {{DATA_FLOW_DESCRIPTION}}
+
+# 技术方案
+design:
+  approach: |
+    {{APPROACH_DESCRIPTION}}
+  why_this_approach: |
+    {{WHY_CHOSEN}}
+  edge_cases:
+    - "{{EDGE_CASE_1}}"
+  config_params:
+    - "{{CONFIG_KEY}}: {{CONFIG_VALUE}}"
+
+# 受影响文件
+affected_files:
+  - "{{FILE_PATH_1}}"
+
+# 验收标准
+acceptance_criteria:
+  - id: "{{TASK_ID}}-AC1"
+    desc: "端到端功能可用"
+    status: FAIL
+  - id: "{{TASK_ID}}-AC2"
+    desc: "集成点正确连接"
+    status: FAIL
+  - id: "{{TASK_ID}}-AC3"
+    desc: "新增完整测试覆盖"
+    status: FAIL
+
+# 回归测试
+regression_test: "运行全量 L1，结果 ≥ 基线"
+
+# 状态
+status: pending
+owner: ""
+retries: 0
+depends: []
+commits: []
+notes: ""
+review_result: null

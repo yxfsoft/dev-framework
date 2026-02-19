@@ -1,0 +1,45 @@
+{
+  "$schema": "Baseline test result format",
+  "$description": "记录迭代开始时的测试基线，后续改动不可低于此基线",
+
+  "format": {
+    "iteration": "迭代 ID (string)",
+    "timestamp": "ISO 8601 时间戳",
+    "git_commit": "基线对应的 git commit hash (string)",
+    "test_results": {
+      "l1_passed": "L1 单元测试通过数 (int)",
+      "l1_failed": "L1 单元测试失败数 (int, 预存失败)",
+      "l1_skipped": "L1 跳过数 (int)",
+      "l2_passed": "L2 集成测试通过数 (int)",
+      "l2_failed": "L2 集成测试失败数 (int)",
+      "e2e_passed": "E2E 测试通过数 (int, 可选)",
+      "e2e_failed": "E2E 测试失败数 (int, 可选)"
+    },
+    "lint_clean": "Lint 是否通过 (bool)",
+    "pre_existing_failures": [
+      "预存失败的测试名称列表 (string[])"
+    ]
+  },
+
+  "rules": {
+    "基线保护": "改动后 l1_passed 必须 >= 基线值",
+    "预存失败": "基线中已存在的失败不计为回归",
+    "新增失败": "任何不在 pre_existing_failures 中的新失败 = 回归",
+    "回归处理": "发现回归立即停止，回退最后一次 commit"
+  },
+
+  "example": {
+    "iteration": "iteration-3",
+    "timestamp": "2026-02-19T14:00:00",
+    "git_commit": "abc1234",
+    "test_results": {
+      "l1_passed": 2381,
+      "l1_failed": 0,
+      "l1_skipped": 3,
+      "l2_passed": 102,
+      "l2_failed": 0
+    },
+    "lint_clean": true,
+    "pre_existing_failures": []
+  }
+}

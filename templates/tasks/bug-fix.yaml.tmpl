@@ -1,0 +1,52 @@
+# Bug 修复任务模板（iterate-mode 使用）
+
+id: "{{TASK_ID}}"
+type: "bug_fix"
+iteration: "{{ITERATION_ID}}"
+title: "{{TITLE}}"
+
+# Bug 描述
+current_behavior: |
+  {{CURRENT_BEHAVIOR}}
+expected_behavior: |
+  {{EXPECTED_BEHAVIOR}}
+reproduction_steps: |
+  {{REPRODUCTION_STEPS}}
+root_cause: |
+  {{ROOT_CAUSE_ANALYSIS}}
+
+# 技术方案
+design:
+  approach: |
+    {{FIX_APPROACH}}
+  why_this_approach: |
+    {{WHY_CHOSEN}}
+
+# 受影响文件
+affected_files:
+  - "{{FILE_PATH_1}}"
+
+# 验收标准
+acceptance_criteria:
+  - id: "{{TASK_ID}}-AC1"
+    desc: "错误行为消失"
+    status: FAIL
+  - id: "{{TASK_ID}}-AC2"
+    desc: "新增回归测试覆盖此 bug"
+    status: FAIL
+  - id: "{{TASK_ID}}-AC3"
+    desc: "相关模块无副作用"
+    status: FAIL
+
+# 回归测试（必须）
+regression_test: "运行全量 L1，结果 ≥ 基线"
+new_test: "{{NEW_TEST_FILE}} — 复现此 bug 的测试"
+
+# 状态
+status: pending
+owner: ""
+retries: 0
+depends: []
+commits: []
+notes: ""
+review_result: null

@@ -1,0 +1,100 @@
+# CLAUDE.md — {{PROJECT_NAME}}
+
+> {{PROJECT_DESCRIPTION}}
+
+---
+
+## 一、项目概述
+
+{{PROJECT_OVERVIEW}}
+
+技术栈：{{TECH_STACK}}
+
+---
+
+## 二、开发规范
+
+### 文件头
+每个源文件必须包含：
+```
+# {{PROJECT_NAME}}
+# {{PROJECT_URL}}
+```
+
+### 包管理器
+{{PACKAGE_MANAGERS}}
+
+### 代码风格
+{{CODE_STYLE}}
+
+### 提交信息
+中文，格式：`[模块] 动作：描述`
+
+---
+
+## 三、关键目录
+
+```
+{{DIRECTORY_STRUCTURE}}
+```
+
+---
+
+## 四、测试策略
+
+- **L0 验收测试**: 零 Mock，真实环境运行。每个 CR 完成后运行。
+- **L1 单元测试**: 最小 Mock（仅白名单场景）。commit 前必须通过。
+- **L2 集成测试**: 零 Mock，完整链路。每批 CR 完成后运行。
+
+### Mock 使用白名单
+仅以下场景允许使用 Mock（必须在代码中声明理由）：
+- 付费外部 API（需有对应的真实 API E2E 测试）
+- CI 环境无硬件
+- 第三方不可控服务
+
+### 自检清单
+- [ ] 文件头注释存在且正确
+- [ ] type hints 完整
+- [ ] 所有外部输入有校验
+- [ ] 错误路径有日志（不静默丢弃）
+- [ ] 无空实现（禁止 pass/NotImplementedError/TODO 占位）
+- [ ] 对应的测试存在且通过
+
+---
+
+## 五、开发框架
+
+本项目使用 dev-framework 统一开发框架管理。
+
+### Agent 定义
+- `.claude/agents/analyst.md` — 需求分析
+- `.claude/agents/developer.md` — 开发执行
+- `.claude/agents/reviewer.md` — 审查验收
+- `.claude/agents/leader.md` — 编排协调
+
+### 状态目录
+- `.claude/dev-state/` — 开发状态（迭代/任务/检查点）
+
+### 运行模式
+- Interactive: 关键决策点暂停确认
+- Auto Loop: 全自动执行
+
+配置文件：`.claude/dev-state/run-config.yaml`
+
+---
+
+## 六、安全策略
+
+{{SECURITY_POLICY}}
+
+---
+
+## 七、配置管理
+
+```
+config/default.yaml   → 默认配置（入 Git）
+config/local.yaml     → 本地覆盖（不入 Git）
+.env                  → 机密配置（不入 Git）
+```
+
+加载顺序：default.yaml → local.yaml → .env（后者覆盖前者）。

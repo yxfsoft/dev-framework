@@ -1,0 +1,185 @@
+# 任务 YAML 格式规范
+# 所有任务文件必须符合此 schema
+
+---
+
+# 必须字段
+required_fields:
+  - id           # 唯一标识，格式: CR-xxx 或 INF-xxx 或 F-xxx
+  - type         # 任务类型
+  - iteration    # 所属迭代 ID
+  - title        # 任务标题（简短描述）
+  - design       # 技术方案
+  - affected_files  # 受影响文件列表
+  - acceptance_criteria  # 验收标准列表
+  - status       # 当前状态
+
+# 字段定义
+fields:
+
+  id:
+    type: string
+    pattern: "^(CR|INF|F)-\\d{3}$"
+    description: "任务唯一标识"
+
+  type:
+    type: string
+    enum:
+      - new_feature     # 新功能
+      - bug_fix         # Bug 修复
+      - enhancement     # 功能增强
+      - refactor        # 重构
+      - infrastructure  # 基础设施
+    description: "任务类型"
+
+  iteration:
+    type: string
+    pattern: "^iteration-\\d+$"
+    description: "所属迭代 ID"
+
+  title:
+    type: string
+    max_length: 100
+    description: "任务标题"
+
+  design:
+    type: object
+    required: [approach, why_this_approach]
+    properties:
+      approach:
+        type: string
+        description: "技术方案描述"
+      why_this_approach:
+        type: string
+        description: "选择此方案的原因（必须说明 why）"
+      edge_cases:
+        type: array
+        items: string
+        description: "边界条件列表"
+      config_params:
+        type: array
+        items: string
+        description: "需要的配置参数"
+
+  affected_files:
+    type: array
+    items: string
+    max_items: 5
+    description: "受影响的文件路径（不超过 5 个）"
+
+  acceptance_criteria:
+    type: array
+    min_items: 1
+    items:
+      type: object
+      required: [id, desc, status]
+      properties:
+        id:
+          type: string
+          description: "验收标准 ID"
+        desc:
+          type: string
+          description: "验收标准描述"
+        status:
+          type: string
+          enum: [FAIL, PASS]
+          description: "验收状态（初始为 FAIL）"
+
+  status:
+    type: string
+    enum:
+      - pending            # 待认领
+      - in_progress        # 开发中
+      - ready_for_review   # 等待审查
+      - PASS               # 审查通过
+      - rework             # 被打回
+      - failed             # 超过重试上限
+      - blocked            # 外部阻塞
+      - timeout            # 执行超时
+    description: "任务状态"
+
+  # 可选字段
+  owner:
+    type: string
+    description: "认领者标识"
+
+  retries:
+    type: integer
+    default: 0
+    description: "重试次数"
+
+  depends:
+    type: array
+    items: string
+    description: "依赖的其他任务 ID"
+
+  commits:
+    type: array
+    items: string
+    description: "关联的 git commit hash"
+
+  notes:
+    type: string
+    description: "备注（Developer 填写已读文件等信息）"
+
+  review_result:
+    type: object
+    nullable: true
+    properties:
+      reviewer: string
+      reviewed_at: string
+      verdict: string  # PASS / REWORK
+      notes: string
+      issues: array
+
+  # bug_fix 类型专用字段
+  current_behavior:
+    type: string
+    applicable_types: [bug_fix, enhancement]
+
+  expected_behavior:
+    type: string
+    applicable_types: [bug_fix]
+
+  desired_behavior:
+    type: string
+    applicable_types: [enhancement]
+
+  reproduction_steps:
+    type: string
+    applicable_types: [bug_fix]
+
+  root_cause:
+    type: string
+    applicable_types: [bug_fix]
+
+  regression_test:
+    type: string
+    applicable_types: [bug_fix, enhancement, new_feature, refactor]
+
+  new_test:
+    type: string
+    applicable_types: [bug_fix]
+
+  # refactor 类型专用字段
+  motivation:
+    type: string
+    applicable_types: [refactor]
+
+  invariants:
+    type: array
+    items: string
+    applicable_types: [refactor]
+
+  # new_feature 类型专用字段（iterate-mode）
+  integration_points:
+    type: array
+    applicable_types: [new_feature]
+
+  data_flow:
+    type: string
+    applicable_types: [new_feature]
+
+  ux_considerations:
+    type: string
+    applicable_types: [enhancement, new_feature]

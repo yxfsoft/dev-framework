@@ -1,0 +1,52 @@
+{
+  "$schema": "Session state format",
+  "$description": "记录当前 session 的运行状态，支持上下文恢复",
+
+  "format": {
+    "session_id": "唯一标识 (string, 自动生成)",
+    "started_at": "ISO 8601 时间戳",
+    "last_updated": "ISO 8601 时间戳",
+    "mode": "interactive | auto-loop",
+    "current_iteration": "当前迭代 ID (string)",
+    "current_phase": "当前阶段 (string: phase_0 ~ phase_5)",
+    "current_task": "当前正在执行的任务 ID (string, nullable)",
+    "progress": {
+      "total_tasks": "总任务数 (int)",
+      "completed": "已完成数 (int)",
+      "in_progress": "进行中数 (int)",
+      "pending": "待做数 (int)",
+      "rework": "返工数 (int)",
+      "failed": "失败数 (int)"
+    },
+    "last_checkpoint": "最新检查点文件名 (string)",
+    "consecutive_failures": "连续失败计数 (int, auto-loop 用)",
+    "agents": {
+      "active": ["活跃 Agent 列表"],
+      "idle": ["空闲 Agent 列表"]
+    }
+  },
+
+  "example": {
+    "session_id": "ses-20260219-143000",
+    "started_at": "2026-02-19T14:30:00",
+    "last_updated": "2026-02-19T15:45:00",
+    "mode": "interactive",
+    "current_iteration": "iteration-3",
+    "current_phase": "phase_3",
+    "current_task": "CR-006",
+    "progress": {
+      "total_tasks": 12,
+      "completed": 5,
+      "in_progress": 1,
+      "pending": 6,
+      "rework": 0,
+      "failed": 0
+    },
+    "last_checkpoint": "cp-003.md",
+    "consecutive_failures": 0,
+    "agents": {
+      "active": ["dev-agent-1"],
+      "idle": ["dev-agent-2"]
+    }
+  }
+}

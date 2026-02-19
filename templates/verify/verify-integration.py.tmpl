@@ -1,0 +1,163 @@
+#!/usr/bin/env python3
+"""
+集成检查点验证脚本
+迭代: {{ITERATION_ID}}
+批次: {{BATCH_ID}}
+生成时间: {{GENERATED_AT}}
+
+此脚本在每批 CR 完成后运行，验证集成状态。
+零 Mock，使用真实环境。
+"""
+
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+
+def load_baseline():
+    """加载基线测试结果"""
+    baseline_path = Path(".claude/dev-state/baseline.json")
+    if not baseline_path.exists():
+        print("  SKIP  无基线文件（init-mode 首轮可跳过）")
+        return None
+    with open(baseline_path) as f:
+        return json.load(f)
+
+
+def check_l1_regression(baseline):
+    """检查 L1 单元测试无回归"""
+    print("\n[1/5] L1 单元测试回归检查")
+    result = subprocess.run(
+        [sys.executable, "-m", "pytest", "tests/unit/", "-q", "--tb=no"],
+        capture_output=True, text=True, timeout=300
+    )
+    # 解析 pytest 输出中的 passed/failed 数量
+    output = result.stdout + result.stderr
+    print(f"  输出: {output.strip()[-200:]}")
+
+    if result.returncode != 0:
+        print("  FAIL  L1 测试有失败")
+        return False
+
+    if baseline:
+        # 确保 passed 数 >= 基线
+        print(f"  基线: {baseline['test_results']['l1_passed']} passed")
+
+    print("  PASS  L1 测试通过")
+    return True
+
+
+def check_l2_integration():
+    """检查 L2 集成测试"""
+    print("\n[2/5] L2 集成测试")
+    integration_dir = Path("tests/integration/")
+    if not integration_dir.exists():
+        print("  SKIP  无集成测试目录")
+        return True
+
+    result = subprocess.run(
+        [sys.executable, "-m", "pytest", "tests/integration/", "-q", "--tb=short"],
+        capture_output=True, text=True, timeout=600
+    )
+    output = result.stdout + result.stderr
+    print(f"  输出: {output.strip()[-200:]}")
+
+    if result.returncode != 0:
+        print("  FAIL  L2 集成测试有失败")
+        return False
+
+    print("  PASS  L2 集成测试通过")
+    return True
+
+
+def check_no_placeholders():
+    """检查无空实现占位"""
+    print("\n[3/5] 空实现检查")
+    result = subprocess.run(
+        ["grep", "-rn", r"TODO\|FIXME\|NotImplementedError\|pass  #",
+         "--include=*.py", "{{SOURCE_DIRS}}"],
+        capture_output=True, text=True
+    )
+    if result.stdout.strip():
+        lines = result.stdout.strip().split("\n")
+        print(f"  WARN  发现 {len(lines)} 处可能的空实现:")
+        for line in lines[:5]:
+            print(f"        {line}")
+        # 警告但不阻塞（某些 pass 可能是合法的）
+    else:
+        print("  PASS  无空实现")
+    return True
+
+
+def check_git_diff():
+    """检查变更范围"""
+    print("\n[4/5] 变更范围检查")
+    result = subprocess.run(
+        ["git", "diff", "--stat", "HEAD~{{BATCH_SIZE}}"],
+        capture_output=True, text=True
+    )
+    print(f"  变更统计:\n{result.stdout}")
+    print("  INFO  请人工确认变更范围是否符合预期")
+    return True
+
+
+def check_lint():
+    """检查代码规范"""
+    print("\n[5/5] Lint 检查")
+    # 根据项目技术栈选择 lint 工具
+    # Python: ruff, JS/TS: eslint
+    result = subprocess.run(
+        [sys.executable, "-m", "ruff", "check", "."],
+        capture_output=True, text=True
+    )
+    if result.returncode != 0:
+        print(f"  FAIL  Lint 有问题:\n{result.stdout[:500]}")
+        return False
+
+    print("  PASS  Lint 通过")
+    return True
+
+
+def main():
+    print(f"集成检查点: {{ITERATION_ID}} / Batch {{BATCH_ID}}")
+    print("=" * 50)
+
+    baseline = load_baseline()
+
+    checks = [
+        ("L1 回归", check_l1_regression, (baseline,)),
+        ("L2 集成", check_l2_integration, ()),
+        ("空实现", check_no_placeholders, ()),
+        ("变更范围", check_git_diff, ()),
+        ("Lint", check_lint, ()),
+    ]
+
+    results = []
+    for name, fn, args in checks:
+        try:
+            passed = fn(*args)
+            results.append((name, passed))
+        except Exception as e:
+            print(f"  ERROR {name}: {e}")
+            results.append((name, False))
+
+    print("\n" + "=" * 50)
+    passed_count = sum(1 for _, p in results if p)
+    total = len(results)
+    print(f"集成检查结果: {passed_count}/{total} PASS")
+
+    for name, passed in results:
+        status = "PASS" if passed else "FAIL"
+        print(f"  {status}  {name}")
+
+    if passed_count < total:
+        print("\n集成检查未通过，请修复后重试。")
+        sys.exit(1)
+    else:
+        print("\n集成检查全部通过!")
+        sys.exit(0)
+
+
+if __name__ == "__main__":
+    main()

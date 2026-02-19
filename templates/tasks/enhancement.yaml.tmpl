@@ -1,0 +1,55 @@
+# 功能增强任务模板（iterate-mode 使用）
+
+id: "{{TASK_ID}}"
+type: "enhancement"
+iteration: "{{ITERATION_ID}}"
+title: "{{TITLE}}"
+
+# 增强描述
+current_behavior: |
+  {{CURRENT_BEHAVIOR}}
+desired_behavior: |
+  {{DESIRED_BEHAVIOR}}
+affected_modules:
+  - "{{MODULE_1}}"
+
+# 用户体验考量
+ux_considerations: |
+  {{UX_DETAILS}}
+
+# 技术方案
+design:
+  approach: |
+    {{APPROACH_DESCRIPTION}}
+  why_this_approach: |
+    {{WHY_CHOSEN}}
+  edge_cases:
+    - "{{EDGE_CASE_1}}"
+
+# 受影响文件
+affected_files:
+  - "{{FILE_PATH_1}}"
+
+# 验收标准
+acceptance_criteria:
+  - id: "{{TASK_ID}}-AC1"
+    desc: "增强后的功能按预期工作"
+    status: FAIL
+  - id: "{{TASK_ID}}-AC2"
+    desc: "现有功能不受影响"
+    status: FAIL
+  - id: "{{TASK_ID}}-AC3"
+    desc: "新增测试覆盖增强部分"
+    status: FAIL
+
+# 回归测试
+regression_test: "运行全量 L1，结果 ≥ 基线"
+
+# 状态
+status: pending
+owner: ""
+retries: 0
+depends: []
+commits: []
+notes: ""
+review_result: null
