@@ -211,9 +211,23 @@ Batch 2: 切片 2 的 CR 序列
 
 ---
 
-## Phase 4-5: 审查与交付
+## Phase 4: 审查验收
 
-与 iterate-mode 相同，参见 `iterate-mode.md`。
+基本流程与 `iterate-mode.md` Phase 4 相同（Reviewer 审查 → PASS/REWORK），但 init-mode 有以下差异：
+
+1. **Feature Checklist 更新**：每个 CR 审查通过后，Reviewer 同步更新 `feature-checklist.json` 中对应 criteria 的状态
+2. **Feature 级验收**：当某个 Feature 的所有 criteria 全部 PASS 时，将该 Feature 标记为 PASS
+3. **全量验收标准**：所有 Feature 必须为 PASS（而非仅检查 CR 状态）
+
+---
+
+## Phase 5: 交付
+
+基本流程与 `iterate-mode.md` Phase 5 相同（全量测试 → 报告 → git push），但 init-mode 有以下差异：
+
+1. **交付物是完整项目**：包含完整的项目代码、ARCHITECTURE.md（含所有 ADR）、测试套件
+2. **Feature Checklist 归档**：最终的 `feature-checklist.json` 作为项目验收清单归档
+3. **基线建立**：首次迭代的测试结果成为后续 iterate-mode 的基线（写入 `baseline.json`）
 
 ---
 

@@ -41,9 +41,9 @@ git pull --rebase origin main
 # 运行全量测试
 pytest tests/ -q --tb=no > baseline_output.txt
 
-# 记录结果
-python dev-framework/scripts/run-baseline.py \
-    --project-dir "D:/my-project" \
+# 记录结果（<框架路径> 为 dev-framework 仓库的根目录）
+python <框架路径>/scripts/run-baseline.py \
+    --project-dir "." \
     --iteration-id "iter-3"
 ```
 

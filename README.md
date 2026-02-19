@@ -117,6 +117,7 @@ dev-framework/
 │
 └── examples/                   # 示例（参考用）
     └── iterate-mode-example/   # 包含完整的 CR 示例
+        ├── README.md
         ├── manifest.json
         ├── tasks/CR-001.yaml
         └── verify/CR-001.py
@@ -340,7 +341,7 @@ python dev-framework/scripts/estimate-tasks.py \
 | 文档 | 内容 |
 |------|------|
 | [FRAMEWORK-SPEC.md](FRAMEWORK-SPEC.md) | 框架规格书（核心文档，完整流程定义） |
-| [ARCHITECTURE.md](ARCHITECTURE.md) | 架构决策记录（7 条 ADR） |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | 架构决策记录（8 条 ADR） |
 | [agents/leader.md](agents/leader.md) | Leader Agent 协议 |
 | [agents/analyst.md](agents/analyst.md) | Analyst Agent 协议 |
 | [agents/developer.md](agents/developer.md) | Developer Agent 协议 |
@@ -350,6 +351,7 @@ python dev-framework/scripts/estimate-tasks.py \
 | [workflows/iterate-mode.md](workflows/iterate-mode.md) | 迭代开发工作流 |
 | [workflows/requirement-intake.md](workflows/requirement-intake.md) | 需求接收与深化 |
 | [workflows/quality-gate.md](workflows/quality-gate.md) | 质量门控规则 |
+| [USER-GUIDE.md](USER-GUIDE.md) | 使用指导手册（场景示例 + FAQ） |
 
 ---
 
@@ -357,6 +359,7 @@ python dev-framework/scripts/estimate-tasks.py \
 
 `examples/iterate-mode-example/` 目录包含一个完整的迭代示例：
 
+- `README.md` — 示例说明文档
 - `manifest.json` — 迭代元信息
 - `tasks/CR-001.yaml` — 完整的 bug_fix 类型任务文件
 - `verify/CR-001.py` — 对应的验收脚本

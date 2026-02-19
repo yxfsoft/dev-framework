@@ -298,7 +298,20 @@ def auto_loop():
 
 ---
 
-## 八、禁止事项
+## 八、Verify 脚本问题处理
+
+当 Developer 或 Verifier 在 CR notes 中报告 verify 脚本存在问题时：
+
+1. Leader 审核报告内容，确认问题是否成立
+2. 如果问题成立，指派 Analyst Agent 修复 verify 脚本
+3. Analyst 修复后，通知 Verifier 重新执行 L0 验收
+4. 在 decisions.md 中记录此修复（包含原问题和修复内容）
+
+> verify 脚本的修改权仅限 Analyst Agent，Developer 和 Verifier 不可自行修改。
+
+---
+
+## 九、禁止事项
 
 - **禁止**跳过需求交互确认环节
 - **禁止**在 Analyst 产出未审批前开始开发

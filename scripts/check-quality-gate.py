@@ -39,7 +39,7 @@ import sys
 from pathlib import Path
 
 
-def load_baseline(project_dir: Path) -> dict | None:
+def load_baseline(project_dir: Path) -> "dict | None":
     """加载基线"""
     baseline_path = project_dir / ".claude" / "dev-state" / "baseline.json"
     if not baseline_path.exists():
@@ -122,7 +122,7 @@ def gate_1_requirement(project_dir: Path, **kwargs) -> bool:
 
 
 def gate_2_task_plan(project_dir: Path, **kwargs) -> bool:
-    """Gate 2: 任务拆分审批（检查 CR 文件和 verify 脚本完整性）"""
+    """Gate 2: 任务拆分审批（结构化校验 + 人工确认）"""
     print("\n[Gate 2] 任务拆分审批检查")
     iteration_id = kwargs.get("iteration_id")
 
@@ -139,30 +139,68 @@ def gate_2_task_plan(project_dir: Path, **kwargs) -> bool:
     iter_dir = project_dir / ".claude" / "dev-state" / iteration_id
     tasks_dir = iter_dir / "tasks"
     verify_dir = iter_dir / "verify"
+    errors: list[str] = []
 
-    if not tasks_dir.exists():
-        print(f"  WARN  任务目录不存在: {tasks_dir}")
-        print(f"\n  Gate 2: PASS (需人工确认)")
-        return True
-
-    task_files = sorted(tasks_dir.glob("*.yaml"))
-    verify_files = {f.stem for f in verify_dir.glob("*.py")} if verify_dir.exists() else set()
-
-    print(f"  任务文件: {len(task_files)} 个")
-    print(f"  验收脚本: {len(verify_files)} 个")
-
-    missing_verify = []
-    for tf in task_files:
-        task_id = tf.stem
-        if task_id not in verify_files:
-            missing_verify.append(task_id)
-
-    if missing_verify:
-        print(f"  WARN  以下任务缺少 verify 脚本: {', '.join(missing_verify)}")
+    if not tasks_dir.exists() or not list(tasks_dir.glob("*.yaml")):
+        errors.append("tasks 目录为空或不存在")
     else:
-        print(f"  PASS  所有任务都有对应的 verify 脚本")
+        try:
+            import yaml
+        except ImportError:
+            print("  WARN  PyYAML 未安装，跳过结构化校验")
+            print(f"\n  Gate 2: PASS (需人工确认)")
+            return True
 
-    print(f"\n  Gate 2: PASS (需人工确认)")
+        verify_files = {f.stem for f in verify_dir.glob("*.py")} if verify_dir.exists() else set()
+        task_files = sorted(tasks_dir.glob("*.yaml"))
+        print(f"  任务文件: {len(task_files)} 个")
+        print(f"  验收脚本: {len(verify_files)} 个")
+
+        for tf in task_files:
+            try:
+                task = yaml.safe_load(tf.read_text(encoding="utf-8"))
+            except Exception:
+                errors.append(f"{tf.stem}: YAML 解析失败")
+                continue
+            if not task:
+                continue
+            tid = task.get("id", tf.stem)
+
+            # affected_files ≤ 5
+            af = task.get("affected_files", [])
+            if len(af) > 5:
+                errors.append(f"{tid}: affected_files={len(af)} > 5")
+
+            # acceptance_criteria 非空（兼容新旧格式）
+            ac = task.get("acceptance_criteria")
+            if isinstance(ac, dict):
+                func_ac = ac.get("functional", [])
+                if len(func_ac) < 1:
+                    errors.append(f"{tid}: acceptance_criteria.functional 为空")
+            elif isinstance(ac, list):
+                if len(ac) < 1:
+                    errors.append(f"{tid}: acceptance_criteria 为空")
+            else:
+                errors.append(f"{tid}: acceptance_criteria 缺失")
+
+            # design.why_this_approach 非空
+            design = task.get("design", {})
+            if not design.get("why_this_approach", "").strip():
+                errors.append(f"{tid}: design 缺少 why_this_approach")
+
+            # 对应 verify 脚本存在
+            if tid not in verify_files:
+                errors.append(f"{tid}: 缺少 verify/{tid}.py")
+
+    if errors:
+        print(f"  FAIL  结构化校验发现 {len(errors)} 个问题:")
+        for e in errors:
+            print(f"        {e}")
+        print(f"\n  Gate 2: FAIL")
+        return False
+
+    print(f"  PASS  结构化校验通过")
+    print(f"\n  Gate 2: PASS (需人工确认任务拆分方案)")
     return True
 
 
@@ -178,6 +216,9 @@ def gate_3_l0_verify(project_dir: Path, **kwargs) -> bool:
 
     # 调用 run-verify.py
     script_path = Path(__file__).parent / "run-verify.py"
+    if not script_path.exists():
+        print(f"  FAIL  验收脚本不存在: {script_path}")
+        return False
     result = subprocess.run(
         [
             sys.executable, str(script_path),
@@ -255,6 +296,11 @@ def gate_5_integration(project_dir: Path, **kwargs) -> bool:
         print("  PASS  L2 集成测试通过")
     else:
         print("  SKIP  无 L2 测试目录")
+
+    # Mock 合规
+    mock_ok = check_mock_compliance(project_dir)
+    if not mock_ok:
+        return False
 
     # Lint
     print("\n  Lint 检查...")
@@ -342,6 +388,37 @@ def gate_6_code_review(project_dir: Path, **kwargs) -> bool:
     return True
 
 
+def check_mock_compliance(project_dir: Path) -> bool:
+    """扫描测试文件中的 Mock 使用，要求非白名单 Mock 必须声明 # MOCK-REASON:"""
+    print("\n  Mock 合规检查...")
+    mock_pattern = re.compile(r"\b(mock|Mock|MagicMock|patch|mocker)\b")
+    reason_pattern = re.compile(r"#\s*MOCK-REASON:\s*.+")
+    violations: list[str] = []
+
+    tests_dir = project_dir / "tests"
+    if not tests_dir.exists():
+        print("  SKIP  无 tests 目录")
+        return True
+
+    for py_file in tests_dir.rglob("*.py"):
+        try:
+            content = py_file.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        if mock_pattern.search(content) and not reason_pattern.search(content):
+            violations.append(str(py_file.relative_to(project_dir)))
+
+    if violations:
+        print(f"  FAIL  {len(violations)} 个测试文件使用 Mock 但未声明 # MOCK-REASON:")
+        for v in violations[:5]:
+            print(f"        {v}")
+        if len(violations) > 5:
+            print(f"        ... 还有 {len(violations) - 5} 个")
+        return False
+    print("  PASS  Mock 使用合规")
+    return True
+
+
 def gate_7_final(project_dir: Path, **kwargs) -> bool:
     """Gate 7: 最终验收"""
     print("\n[Gate 7] 最终验收")
@@ -369,11 +446,13 @@ def gate_7_final(project_dir: Path, **kwargs) -> bool:
             continue
 
     if not_impl_found:
-        print(f"  WARN  发现 {len(not_impl_found)} 处 NotImplementedError")
+        print(f"  FAIL  发现 {len(not_impl_found)} 处 NotImplementedError（禁止空实现）")
         for entry in not_impl_found[:5]:
             print(f"        {entry}")
         if len(not_impl_found) > 5:
             print(f"        ... 还有 {len(not_impl_found) - 5} 处")
+        print(f"\n  Gate 7: FAIL")
+        return False
     else:
         print("  PASS  无 NotImplementedError")
 

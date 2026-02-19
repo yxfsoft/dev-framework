@@ -12,8 +12,12 @@ design:
   why_this_approach: |
     {{WHY_CHOSEN}}
   edge_cases:
-    - "{{EDGE_CASE_1}}"
-    - "{{EDGE_CASE_2}}"
+    - scenario: "{{EDGE_CASE_1_SCENARIO}}"
+      input: "{{EDGE_CASE_1_INPUT}}"
+      expected: "{{EDGE_CASE_1_EXPECTED}}"
+    - scenario: "{{EDGE_CASE_2_SCENARIO}}"
+      input: "{{EDGE_CASE_2_INPUT}}"
+      expected: "{{EDGE_CASE_2_EXPECTED}}"
   config_params:
     - "{{CONFIG_KEY}}: {{CONFIG_VALUE}}  # {{COMMENT}}"
 
@@ -22,17 +26,19 @@ affected_files:
   - "{{FILE_PATH_1}}"
   - "{{FILE_PATH_2}}"
 
-# 验收标准（全部初始 FAIL）
+# 验收标准（按维度分组，全部初始 FAIL）
 acceptance_criteria:
-  - id: "{{TASK_ID}}-AC1"
-    desc: "{{CRITERION_1}}"
-    status: FAIL
-  - id: "{{TASK_ID}}-AC2"
-    desc: "{{CRITERION_2}}"
-    status: FAIL
+  functional:
+    - id: "{{TASK_ID}}-AC1"
+      desc: "{{CRITERION_1}}"
+      status: FAIL
+    - id: "{{TASK_ID}}-AC2"
+      desc: "{{CRITERION_2}}"
+      status: FAIL
 
 # 状态（状态机: pending → in_progress → ready_for_verify → ready_for_review → PASS/rework/failed）
 status: pending
+current_step: null
 owner: ""
 retries: 0
 

@@ -26,17 +26,19 @@ design:
 affected_files:
   - "{{FILE_PATH_1}}"
 
-# 验收标准
+# 验收标准（按维度分组）
 acceptance_criteria:
-  - id: "{{TASK_ID}}-AC1"
-    desc: "错误行为消失"
-    status: FAIL
-  - id: "{{TASK_ID}}-AC2"
-    desc: "新增回归测试覆盖此 bug"
-    status: FAIL
-  - id: "{{TASK_ID}}-AC3"
-    desc: "相关模块无副作用"
-    status: FAIL
+  functional:
+    - id: "{{TASK_ID}}-AC1"
+      desc: "错误行为消失"
+      status: FAIL
+    - id: "{{TASK_ID}}-AC2"
+      desc: "新增回归测试覆盖此 bug"
+      status: FAIL
+  robustness:
+    - id: "{{TASK_ID}}-AC3"
+      desc: "相关模块无副作用"
+      status: FAIL
 
 # 回归测试（必须）
 regression_test: "运行全量 L1，结果 ≥ 基线"
@@ -44,6 +46,7 @@ new_test: "{{NEW_TEST_FILE}} — 复现此 bug 的测试"
 
 # 状态（状态机: pending → in_progress → ready_for_verify → ready_for_review → PASS/rework/failed）
 status: pending
+current_step: null
 owner: ""
 retries: 0
 depends: []

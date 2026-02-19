@@ -20,7 +20,7 @@
             "status": "FAIL | PASS"
           }
         ],
-        "verify_script": "scripts/verify/F001.py (验证脚本路径)"
+        "verify_script": "{iteration-id}/verify/F001.py (验证脚本路径，位于迭代目录下)"
       }
     ]
   },
@@ -51,7 +51,7 @@
           {"id": "F001-C5", "desc": "向量入库到 Milvus text_records", "status": "FAIL"},
           {"id": "F001-C6", "desc": "搜索 API 返回相关结果 (score>0.5)", "status": "FAIL"}
         ],
-        "verify_script": "scripts/verify/F001.py"
+        "verify_script": "iteration-0/verify/F001.py"
       }
     ]
   }

@@ -105,3 +105,21 @@ config/local.yaml     → 本地覆盖（不入 Git）
 ```
 
 加载顺序：default.yaml → local.yaml → .env（后者覆盖前者）。
+
+---
+
+## 八、上下文校准协议
+
+在开始任何 CR 的任何 Step 之前，先确认以下信息在脑中且准确：
+1. 当前阶段和任务：`.claude/dev-state/session-state.json` → current_phase + current_task
+2. 当前任务的要求：`tasks/{当前CR}.yaml` → design + acceptance_criteria + current_step
+3. 关键决策上下文：`decisions.md`（如有）
+
+如果以上信息清晰且确定，跳过校准直接工作。
+如果有任何不确定，读取对应文件后再继续。
+
+完整恢复（长时间中断后）：
+运行框架的 session-manager.py 脚本：`python <框架安装路径>/scripts/session-manager.py --project-dir "." resume`
+读取输出的 `resume-summary.md`，确认后继续。
+
+> 提示：框架安装路径即 dev-framework 仓库的根目录，在项目初始化时由 init-project.py 输出。

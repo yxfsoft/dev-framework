@@ -15,7 +15,11 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-import yaml
+try:
+    import yaml
+except ImportError:
+    print("ERROR: PyYAML 未安装。运行: pip install PyYAML>=6.0")
+    sys.exit(1)
 
 
 def load_tasks(project_dir: Path, iteration_id: str) -> list[dict]:

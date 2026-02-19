@@ -14,17 +14,18 @@ import traceback
 from datetime import datetime, timezone
 
 
-def verify_ac1():
+def verify_{{TASK_ID_LOWER}}_ac1():
     """{{AC1_DESC}}"""
     {{AC1_VERIFY_CODE}}
 
 
-def verify_ac2():
+def verify_{{TASK_ID_LOWER}}_ac2():
     """{{AC2_DESC}}"""
     {{AC2_VERIFY_CODE}}
 
 
-# 按需追加更多 verify_acN 函数
+# 按需追加更多 verify_{{TASK_ID_LOWER}}_acN 函数
+# 命名规则: verify_{task_id小写}_{ac_id}()
 
 
 def collect_evidence(results, task_id):
@@ -42,8 +43,8 @@ def collect_evidence(results, task_id):
 def main():
     results = []
     criteria = [
-        ("{{TASK_ID}}-AC1", "{{AC1_DESC}}", verify_ac1),
-        ("{{TASK_ID}}-AC2", "{{AC2_DESC}}", verify_ac2),
+        ("{{TASK_ID}}-AC1", "{{AC1_DESC}}", verify_{{TASK_ID_LOWER}}_ac1),
+        ("{{TASK_ID}}-AC2", "{{AC2_DESC}}", verify_{{TASK_ID_LOWER}}_ac2),
     ]
 
     for ac_id, desc, fn in criteria:

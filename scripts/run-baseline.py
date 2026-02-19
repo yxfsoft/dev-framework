@@ -94,17 +94,25 @@ def run_baseline(project_dir: Path, iteration_id: str) -> None:
     # Lint 检查
     print("[3/3] Lint 检查...")
     lint_clean = True
-    lint_result = subprocess.run(
-        [sys.executable, "-m", "ruff", "check", "."],
-        capture_output=True,
-        text=True,
-        cwd=project_dir,
+    # 检查 ruff 是否可用
+    ruff_check = subprocess.run(
+        [sys.executable, "-m", "ruff", "--version"],
+        capture_output=True, text=True,
     )
-    if lint_result.returncode != 0:
-        lint_clean = False
-        print(f"  Lint: 有问题")
+    if ruff_check.returncode != 0:
+        print("  Lint: 跳过（ruff 未安装，运行 pip install ruff 安装）")
     else:
-        print(f"  Lint: 通过")
+        lint_result = subprocess.run(
+            [sys.executable, "-m", "ruff", "check", "."],
+            capture_output=True,
+            text=True,
+            cwd=project_dir,
+        )
+        if lint_result.returncode != 0:
+            lint_clean = False
+            print(f"  Lint: 有问题")
+        else:
+            print(f"  Lint: 通过")
 
     # 收集预存失败
     pre_existing = []

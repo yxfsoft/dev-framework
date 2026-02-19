@@ -18,6 +18,8 @@ Developer Agent 负责将 Analyst 拆分的 CR 任务转化为生产级代码。
 
 ### Step 1: 理解任务
 
+> 更新 CR-xxx.yaml: `current_step: "reading_code"`
+
 1. 读取 CR-xxx.yaml 的完整内容
    - design 段：理解技术方案和选型原因
    - edge_cases 段：理解需要处理的边界
@@ -41,6 +43,8 @@ Developer Agent 负责将 Analyst 拆分的 CR 任务转化为生产级代码。
 
 ### Step 2: 编码实现
 
+> 更新 CR-xxx.yaml: `current_step: "coding"`
+
 1. 按照 design 段的技术方案编码
 2. 处理 edge_cases 段列出的所有边界条件
 3. 遵循项目的代码规范（CLAUDE.md 中定义）
@@ -53,6 +57,8 @@ Developer Agent 负责将 Analyst 拆分的 CR 任务转化为生产级代码。
 
 ### Step 3: 编码自检
 
+> 更新 CR-xxx.yaml: `current_step: "self_check"`
+
 在提交前进行自检（不替代 Verifier 的正式验收）：
 
 1. 逐条对照 acceptance_criteria，确认每条标准都有对应实现
@@ -64,6 +70,8 @@ Developer 不再直接运行 verify 脚本，也不可修改 verify 脚本。
 如果认为 verify 脚本有问题，在 CR notes 中记录，等待 Leader 处理。
 
 ### Step 4: 编写/更新 L1 测试
+
+> 更新 CR-xxx.yaml: `current_step: "testing"`
 
 1. 新增或更新单元测试
 2. Mock 使用规则：
@@ -80,6 +88,8 @@ Developer 不再直接运行 verify 脚本，也不可修改 verify 脚本。
 
 ### Step 5: 运行基线回归
 
+> 更新 CR-xxx.yaml: `current_step: "regression"`
+
 ```bash
 # 运行全量 L1 测试
 pytest tests/ -x -q
@@ -90,11 +100,15 @@ pytest tests/ -x -q
 
 ### Step 6: Git Commit
 
+> 更新 CR-xxx.yaml: `current_step: "committing"`
+
 - commit message 格式：`[模块] 动作：描述 (CR-xxx)`
 - 只 add 本 CR 相关的文件，不带入无关改动
 - 确保 commit 后工作区干净
 
 ### Step 7: 标记状态
+
+> 更新 CR-xxx.yaml: `current_step: "ready_for_verify"`
 
 ```yaml
 # 修改 CR-xxx.yaml
@@ -146,9 +160,9 @@ commits:
 1. 读取 Reviewer 的反馈（在 CR 的 review_feedback 字段）
 2. 理解问题所在
 3. 修复代码
-4. 重新运行 L0 验收 + L1 测试 + 基线回归
+4. 重新运行 L1 测试 + 基线回归
 5. 重新 git commit
-6. 重新标记为 ready_for_review
+6. 重新标记为 **ready_for_verify**（由 Verifier 再次独立验收后才能进入 ready_for_review）
 
 ---
 

@@ -167,8 +167,19 @@ def generate_skeleton(
         sys.exit(1)
 
     task = yaml.safe_load(task_path.read_text(encoding="utf-8"))
-    criteria = task.get("acceptance_criteria", [])
+    raw_ac = task.get("acceptance_criteria", [])
     title = task.get("title", "未知任务")
+
+    # 兼容新旧格式：新格式是 dict（按维度分组），旧格式是 list
+    if isinstance(raw_ac, dict):
+        criteria = []
+        for group_name in ("functional", "robustness", "performance",
+                           "ux_states", "ux_interaction", "security", "observability"):
+            criteria.extend(raw_ac.get(group_name, []))
+    elif isinstance(raw_ac, list):
+        criteria = raw_ac
+    else:
+        criteria = []
 
     if not criteria:
         print(f"错误: {task_id} 无 acceptance_criteria")

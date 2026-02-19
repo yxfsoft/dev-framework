@@ -54,8 +54,23 @@ fields:
         description: "选择此方案的原因（必须说明 why）"
       edge_cases:
         type: array
-        items: string
-        description: "边界条件列表"
+        description: "边界条件列表（结构化）"
+        items:
+          type: object
+          required: [scenario, input, expected]
+          properties:
+            scenario:
+              type: string
+              description: "场景名称"
+            input:
+              type: string
+              description: "触发条件/输入"
+            expected:
+              type: string
+              description: "期望行为"
+            verify_method:
+              type: string
+              description: "验证方式（可选）"
       config_params:
         type: array
         items: string
@@ -68,22 +83,52 @@ fields:
     description: "受影响的文件路径（不超过 5 个）"
 
   acceptance_criteria:
-    type: array
-    min_items: 1
-    items:
-      type: object
-      required: [id, desc, status]
-      properties:
-        id:
-          type: string
-          description: "验收标准 ID"
-        desc:
-          type: string
-          description: "验收标准描述"
-        status:
-          type: string
-          enum: [FAIL, PASS]
-          description: "验收状态（初始为 FAIL）"
+    type: object
+    description: "验收标准，按维度分组。functional 至少 1 条，其余分组可为空（标注 N/A）"
+    required: [functional]
+    properties:
+      functional:
+        type: array
+        min_items: 1
+        description: "功能验收（至少 1 条）"
+        items: &ac_item
+          type: object
+          required: [id, desc, status]
+          properties:
+            id:
+              type: string
+              description: "验收标准 ID"
+            desc:
+              type: string
+              description: "验收标准描述"
+            status:
+              type: string
+              enum: [FAIL, PASS]
+              description: "验收状态（初始为 FAIL）"
+      robustness:
+        type: array
+        description: "健壮性验收"
+        items: *ac_item
+      performance:
+        type: array
+        description: "性能验收"
+        items: *ac_item
+      ux_states:
+        type: array
+        description: "UX 状态覆盖验收"
+        items: *ac_item
+      ux_interaction:
+        type: array
+        description: "UX 交互验收"
+        items: *ac_item
+      security:
+        type: array
+        description: "安全验收"
+        items: *ac_item
+      observability:
+        type: array
+        description: "可观测性验收"
+        items: *ac_item
 
   status:
     type: string
@@ -92,12 +137,30 @@ fields:
       - in_progress        # 开发中
       - ready_for_verify   # 等待验收（Verifier 执行 L0 验收 + 证据收集）
       - ready_for_review   # 等待审查（Reviewer 代码审查 + 裁决）
-      - PASS               # 审查通过
+      - PASS               # 审查通过（终态，大写以区分）
       - rework             # 被打回
       - failed             # 超过重试上限
       - blocked            # 外部阻塞
       - timeout            # 执行超时
-    description: "任务状态"
+    description: |
+      任务状态。命名约定：
+      - 过程态使用小写下划线（pending, in_progress, ready_for_verify 等）
+      - 终态成功使用大写（PASS）以视觉突出
+      - review_result.verdict 使用大写（PASS / REWORK）
+      代码中比较状态值时必须使用精确匹配，不可忽略大小写。
+
+  current_step:
+    type: string
+    nullable: true
+    enum:
+      - reading_code       # 正在读代码
+      - coding             # 正在编码
+      - self_check         # 编码自检
+      - testing            # 运行 L1 测试
+      - regression         # 基线回归
+      - committing         # git commit
+      - ready_for_verify   # 已提交验收
+    description: "当前执行步骤（in_progress 时由 Developer 更新）"
 
   # 可选字段
   owner:

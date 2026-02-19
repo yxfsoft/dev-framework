@@ -18,10 +18,41 @@ session-manager.py — Session 状态管理工具
 
 import argparse
 import json
+import subprocess
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-import yaml
+try:
+    import yaml
+except ImportError:
+    print("ERROR: PyYAML 未安装。运行: pip install PyYAML>=6.0")
+    sys.exit(1)
+
+
+# Phase 状态机
+PHASE_ORDER = [
+    "phase_0", "phase_1", "phase_2",
+    "phase_3", "phase_3.5", "phase_4", "phase_5",
+]
+
+
+def validate_phase_transition(current: str, target: str) -> tuple[bool, str]:
+    """校验 Phase 转换是否合法。返回 (合法, 原因)。"""
+    if current not in PHASE_ORDER or target not in PHASE_ORDER:
+        return False, f"未知 Phase: {current} → {target}"
+    curr_idx = PHASE_ORDER.index(current)
+    target_idx = PHASE_ORDER.index(target)
+    # 正常前进（+1）
+    if target_idx == curr_idx + 1:
+        return True, "正常前进"
+    # rework 回退到 phase_3
+    if target == "phase_3" and current in ("phase_3.5", "phase_4"):
+        return True, "rework 回退"
+    # 同 phase（重新进入）
+    if target_idx == curr_idx:
+        return True, "同阶段重入"
+    return False, f"非法跳转: {current} → {target}（跳过了中间阶段）"
 
 
 def cmd_status(project_dir: Path) -> None:
@@ -53,6 +84,19 @@ def cmd_status(project_dir: Path) -> None:
     print(f"  待做: {pending}")
     print(f"  返工: {rework}")
 
+    # 输出当前 Phase 的合法下一步
+    current_phase = state.get("current_phase", "")
+    if current_phase and current_phase in PHASE_ORDER:
+        valid_next = []
+        for candidate in PHASE_ORDER:
+            ok, reason = validate_phase_transition(current_phase, candidate)
+            if ok and candidate != current_phase:
+                valid_next.append(f"{candidate} ({reason})")
+        if valid_next:
+            print(f"\n合法的下一步 Phase:")
+            for v in valid_next:
+                print(f"  → {v}")
+
 
 def cmd_checkpoint(project_dir: Path) -> None:
     """写入检查点"""
@@ -83,7 +127,7 @@ def cmd_checkpoint(project_dir: Path) -> None:
                 if task:
                     tasks.append(task)
             except Exception as e:
-                print(f"  WARN: 解析 {f} 失败: {e}", file=__import__('sys').stderr)
+                print(f"  WARN: 解析 {f} 失败: {e}", file=sys.stderr)
 
     # 生成检查点
     now = datetime.now(timezone.utc).isoformat()
@@ -125,7 +169,11 @@ def cmd_checkpoint(project_dir: Path) -> None:
 
 
 def cmd_resume(project_dir: Path) -> None:
-    """生成恢复上下文摘要"""
+    """生成恢复上下文摘要（完整版）
+
+    扫描 session-state + 任务状态 + 检查点 + 决策 + 经验日志，
+    输出完整恢复摘要并写入 resume-summary.md 文件供 Agent 随时重读。
+    """
     dev_state = project_dir / ".claude" / "dev-state"
     state_path = dev_state / "session-state.json"
 
@@ -135,39 +183,108 @@ def cmd_resume(project_dir: Path) -> None:
 
     state = json.loads(state_path.read_text())
     iteration_id = state.get("current_iteration", "unknown")
+    iter_dir = dev_state / iteration_id
+    lines: list[str] = []
 
-    # 读取最新检查点
-    cp_dir = dev_state / iteration_id / "checkpoints"
-    last_cp = ""
+    def emit(text: str = "") -> None:
+        lines.append(text)
+        print(text)
+
+    emit("=" * 50)
+    emit("Session 恢复摘要")
+    emit("=" * 50)
+
+    # 1. 基本状态
+    progress = state.get("progress", {})
+    emit(f"\n迭代: {iteration_id}")
+    emit(f"阶段: {state.get('current_phase', '?')}")
+    emit(f"进度: {progress.get('completed', 0)}/{progress.get('total_tasks', 0)} CR 完成")
+    emit(f"当前任务: {state.get('current_task', '无')}")
+    emit(f"上次更新: {state.get('last_updated', '?')}")
+
+    # 2. 扫描任务状态
+    tasks_dir = iter_dir / "tasks"
+    if tasks_dir.exists():
+        task_files = sorted(tasks_dir.glob("*.yaml"))
+        if task_files:
+            emit(f"\n{'─' * 40}")
+            emit(f"任务状态 ({len(task_files)} 个):")
+            for tf in task_files:
+                try:
+                    task = yaml.safe_load(tf.read_text(encoding="utf-8"))
+                    if task:
+                        tid = task.get("id", tf.stem)
+                        status = task.get("status", "?")
+                        title = task.get("title", "")[:50]
+                        emit(f"  {status:20s} {tid}: {title}")
+                except Exception:
+                    emit(f"  {'ERROR':20s} {tf.stem}: (解析失败)")
+
+    # 3. 最新检查点（完整内容）
+    cp_dir = iter_dir / "checkpoints"
     if cp_dir.exists():
         cps = sorted(cp_dir.glob("cp-*.md"))
         if cps:
             last_cp = cps[-1].read_text(encoding="utf-8")
+            emit(f"\n{'─' * 40}")
+            emit(f"最新检查点 ({cps[-1].name}):")
+            emit(last_cp)
 
-    # 读取 decisions
-    decisions_path = dev_state / iteration_id / "decisions.md"
-    decisions = ""
+    # 4. 关键决策（完整内容）
+    decisions_path = iter_dir / "decisions.md"
     if decisions_path.exists():
         decisions = decisions_path.read_text(encoding="utf-8")
+        if decisions.strip() and len(decisions) > 50:
+            emit(f"\n{'─' * 40}")
+            emit("关键决策:")
+            emit(decisions)
 
-    # 输出摘要
-    progress = state.get("progress", {})
-    print("=" * 50)
-    print("Session 恢复摘要")
-    print("=" * 50)
-    print(f"\n迭代: {iteration_id}")
-    print(f"阶段: {state.get('current_phase', '?')}")
-    print(f"进度: {progress.get('completed', 0)}/{progress.get('total_tasks', 0)} CR 完成")
-    print(f"当前任务: {state.get('current_task', '无')}")
-    print(f"上次更新: {state.get('last_updated', '?')}")
+    # 5. 经验日志摘要
+    exp_path = dev_state / "experience-log.md"
+    if exp_path.exists():
+        exp_content = exp_path.read_text(encoding="utf-8")
+        if exp_content.strip() and len(exp_content) > 50:
+            emit(f"\n{'─' * 40}")
+            emit("经验日志:")
+            emit(exp_content)
 
-    if last_cp:
-        print(f"\n最新检查点:\n{last_cp[:500]}")
+    # 6. Git 最近提交
+    try:
+        git_log = subprocess.run(
+            ["git", "log", "--oneline", "-10"],
+            cwd=str(project_dir),
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if git_log.returncode == 0 and git_log.stdout.strip():
+            emit(f"\n{'─' * 40}")
+            emit("最近 Git 提交:")
+            emit(git_log.stdout.strip())
+    except Exception:
+        emit("  (git log 获取失败)")
 
-    if decisions and len(decisions) > 50:
-        print(f"\n关键决策:\n{decisions[-300:]}")
+    # 7. 基线测试摘要
+    baseline_path = dev_state / "baseline.json"
+    if baseline_path.exists():
+        try:
+            baseline = json.loads(baseline_path.read_text())
+            test_results = baseline.get("test_results", {})
+            emit(f"\n{'─' * 40}")
+            emit("基线状态:")
+            emit(f"  L1 passed: {test_results.get('l1_passed', '?')}")
+            emit(f"  L2 passed: {test_results.get('l2_passed', '?')}")
+            emit(f"  Lint clean: {baseline.get('lint_clean', '?')}")
+        except Exception:
+            emit("  (baseline.json 解析失败)")
 
-    print(f"\n建议: 读取上述信息后继续工作。")
+    emit(f"\n{'=' * 50}")
+    emit("建议: 读取上述信息后继续工作。")
+
+    # 写入 resume-summary.md 供 Agent 随时重读
+    summary_path = iter_dir / "resume-summary.md"
+    summary_path.write_text("\n".join(lines), encoding="utf-8")
+    print(f"\n恢复摘要已写入: {summary_path}")
 
 
 def cmd_ledger(project_dir: Path) -> None:
@@ -200,7 +317,7 @@ def cmd_ledger(project_dir: Path) -> None:
                 if task:
                     tasks.append(task)
             except Exception as e:
-                print(f"  WARN: 解析 {f} 失败: {e}", file=__import__('sys').stderr)
+                print(f"  WARN: 解析 {f} 失败: {e}", file=sys.stderr)
 
     # 生成 ledger 内容
     content = f"# Session Ledger — {date_str}-{seq:02d}\n\n"

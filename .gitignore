@@ -28,3 +28,6 @@ desktop.ini
 .env
 .env.local
 credentials.json
+
+# 测试缓存
+.pytest_cache/

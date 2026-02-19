@@ -74,9 +74,11 @@ def check_l2_integration():
 def check_no_placeholders():
     """检查无空实现占位"""
     print("\n[3/5] 空实现检查")
+    # SOURCE_DIRS 示例: ["src/", "services/"]（列表格式，由模板填充）
+    source_dirs = {{SOURCE_DIRS}}  # noqa: 模板占位符，生成时替换为 Python 列表
     result = subprocess.run(
         ["grep", "-rn", r"TODO\|FIXME\|NotImplementedError\|pass  #",
-         "--include=*.py", "{{SOURCE_DIRS}}"],
+         "--include=*.py"] + source_dirs,
         capture_output=True, text=True
     )
     if result.stdout.strip():
