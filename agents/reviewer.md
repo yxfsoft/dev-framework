@@ -65,6 +65,15 @@ Reviewer Agent 是质量的最后守门人。
 
 检查方式：运行测试 + 对比 git diff。
 
+#### 维度 E: 证据完整性
+
+- done_evidence.tests 是否非空且包含有效的测试结果？
+- done_evidence.logs 是否包含关键执行日志？
+- 证据与 acceptance_criteria 是否一一对应？
+- 证据是否由 Verifier Agent 填写（而非 Developer 自填）？
+
+检查方式：逐字段检查 done_evidence，确认与 verify 脚本输出一致。
+
 ### Step 3: 运行 L2 验证
 
 ```bash
@@ -82,7 +91,7 @@ pytest tests/ -x -q
 
 #### PASS 条件（全部满足）
 
-- 4 个维度审查无阻塞问题
+- 5 个维度审查无阻塞问题
 - L0 verify 脚本全部通过
 - L1 测试全部通过
 - L2 集成测试全部通过
@@ -149,6 +158,11 @@ review_result:
 - [ ] 每条 acceptance_criteria 有对应实现
 - [ ] 每个 edge_case 有对应处理
 - [ ] design 段的技术方案被正确执行
+
+### 证据层面
+- [ ] done_evidence.tests 非空且有效
+- [ ] done_evidence.logs 含关键执行日志
+- [ ] done_evidence 内容与 acceptance_criteria 对应
 
 ### 回归层面
 - [ ] 测试结果 ≥ baseline.json

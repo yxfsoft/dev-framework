@@ -51,17 +51,17 @@ Developer Agent 负责将 Analyst 拆分的 CR 任务转化为生产级代码。
    - 无硬编码参数（抽到配置）
    - 无空实现（禁止 `pass`、`NotImplementedError`、`TODO`）
 
-### Step 3: 运行 L0 验收
+### Step 3: 编码自检
 
-```bash
-python {iteration}/verify/CR-xxx.py
-```
+在提交前进行自检（不替代 Verifier 的正式验收）：
 
-- 全部 PASS → 继续
-- 有 FAIL → 修复代码后重新运行，不继续下一步
+1. 逐条对照 acceptance_criteria，确认每条标准都有对应实现
+2. 逐条对照 edge_cases，确认每个边界条件都已处理
+3. 手动确认核心功能可运行
 
-**注意：不可修改 verify 脚本。** 如果认为 verify 脚本有问题，
-在 CR notes 中记录，等待 Leader 处理。
+**注意：正式的 L0 验收由 Verifier Agent 独立执行。**
+Developer 不再直接运行 verify 脚本，也不可修改 verify 脚本。
+如果认为 verify 脚本有问题，在 CR notes 中记录，等待 Leader 处理。
 
 ### Step 4: 编写/更新 L1 测试
 
@@ -98,12 +98,17 @@ pytest tests/ -x -q
 
 ```yaml
 # 修改 CR-xxx.yaml
-status: ready_for_review
+status: ready_for_verify
 commits:
   - "abc1234 [query] 优化：搜索缓存 + 混合检索 (CR-003)"
 ```
 
-**不可将状态标记为 PASS。** 只有 Reviewer 才有此权限。
+**不可将状态标记为 PASS 或 ready_for_review。**
+- `ready_for_verify`：交给 Verifier Agent 执行独立验收
+- Verifier 验收通过后会标记为 `ready_for_review`
+- 只有 Reviewer 才能标记 `PASS`
+
+**不可修改 done_evidence 字段。** 证据由 Verifier 填写。
 
 ---
 
@@ -151,11 +156,12 @@ commits:
 
 - **禁止**修改 verify 脚本（`iteration-{id}/verify/` 目录下的文件）
 - **禁止**修改已审批的需求文档（requirement-spec.md）
-- **禁止**将任务标记为 PASS（只能标记 ready_for_review）
+- **禁止**将任务标记为 PASS 或 ready_for_review（只能标记 ready_for_verify）
 - **禁止**在代码中使用 `pass`、`NotImplementedError`、`TODO` 作为实现占位
 - **禁止**在未读取相关代码的情况下开始编码
 - **禁止**使用非白名单场景的 Mock
-- **禁止**跳过 L0 验收直接进入下一步
+- **禁止**跳过编码自检直接标记 ready_for_verify
+- **禁止**修改 done_evidence 字段（由 Verifier 填写）
 - **禁止**在 commit 中包含无关文件的改动
 
 ---
@@ -171,7 +177,7 @@ commits:
 - [ ] 无硬编码参数
 - [ ] 无空实现
 - [ ] 对应的测试存在且通过
-- [ ] L0 验收全部 PASS
+- [ ] 编码自检完成（acceptance_criteria + edge_cases 逐条对照）
 - [ ] 基线回归无退化
 - [ ] commit message 格式正确
 

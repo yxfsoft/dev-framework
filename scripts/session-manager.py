@@ -170,13 +170,76 @@ def cmd_resume(project_dir: Path) -> None:
     print(f"\n建议: 读取上述信息后继续工作。")
 
 
+def cmd_ledger(project_dir: Path) -> None:
+    """写入 Session Ledger 记录（Team 并行子任务台账）"""
+    dev_state = project_dir / ".claude" / "dev-state"
+    state_path = dev_state / "session-state.json"
+
+    if not state_path.exists():
+        print("无 session 状态文件")
+        return
+
+    state = json.loads(state_path.read_text())
+    iteration_id = state.get("current_iteration", "unknown")
+    ledger_dir = dev_state / iteration_id / "ledger"
+    ledger_dir.mkdir(parents=True, exist_ok=True)
+
+    # 确定编号
+    now = datetime.now(timezone.utc)
+    date_str = now.strftime("%Y%m%d")
+    existing = sorted(ledger_dir.glob(f"session-{date_str}-*.md"))
+    seq = len(existing) + 1
+
+    # 加载任务
+    tasks_dir = dev_state / iteration_id / "tasks"
+    tasks = []
+    if tasks_dir.exists():
+        for f in sorted(tasks_dir.glob("*.yaml")):
+            try:
+                task = yaml.safe_load(f.read_text(encoding="utf-8"))
+                if task:
+                    tasks.append(task)
+            except Exception:
+                pass
+
+    # 生成 ledger 内容
+    content = f"# Session Ledger — {date_str}-{seq:02d}\n\n"
+    content += f"## 基本信息\n"
+    content += f"- iteration: {iteration_id}\n"
+    content += f"- phase: {state.get('current_phase', '?')}\n"
+    content += f"- timestamp: {now.isoformat()}\n\n"
+    content += f"## Team 子任务\n\n"
+    content += f"| Agent | CR | Status | Output |\n"
+    content += f"|-------|-----|--------|--------|\n"
+
+    for t in tasks:
+        status = t.get("status", "?")
+        if status in ("in_progress", "ready_for_verify", "ready_for_review", "PASS", "rework"):
+            owner = t.get("owner", "-")
+            tid = t.get("id", "?")
+            title = t.get("title", "?")[:40]
+            content += f"| {owner} | {tid} | {status} | {title} |\n"
+
+    content += f"\n## 决策记录\n- (由 Leader 填写)\n"
+    content += f"\n## 下一步行动\n- (由 Leader 填写)\n"
+
+    ledger_path = ledger_dir / f"session-{date_str}-{seq:02d}.md"
+    ledger_path.write_text(content, encoding="utf-8")
+
+    # 更新 session-state
+    state["last_updated"] = now.isoformat()
+    state_path.write_text(json.dumps(state, indent=2, ensure_ascii=False))
+
+    print(f"Session Ledger 已写入: {ledger_path}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Session 状态管理")
     parser.add_argument("--project-dir", required=True, help="项目目录路径")
     parser.add_argument(
         "command",
-        choices=["status", "checkpoint", "resume"],
-        help="操作: status(查看状态), checkpoint(写入检查点), resume(恢复摘要)",
+        choices=["status", "checkpoint", "resume", "ledger"],
+        help="操作: status(查看状态), checkpoint(写入检查点), resume(恢复摘要), ledger(写入并行台账)",
     )
     args = parser.parse_args()
     project_dir = Path(args.project_dir).resolve()
@@ -185,6 +248,7 @@ def main() -> None:
         "status": cmd_status,
         "checkpoint": cmd_checkpoint,
         "resume": cmd_resume,
+        "ledger": cmd_ledger,
     }
     commands[args.command](project_dir)
 

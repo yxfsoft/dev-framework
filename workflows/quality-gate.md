@@ -64,12 +64,14 @@ Gate 7: 最终验收         → 全量测试 + lint + E2E
 
 ### Gate 3: L0 验收
 
-**触发时机**: Developer 完成编码后
+**触发时机**: Developer 标记 ready_for_verify 后
+**执行者**: Verifier Agent（独立于 Developer 执行）
 **检查内容**:
 - [ ] `python verify/CR-xxx.py` 全部 PASS
 - [ ] 无 Mock 绕过
+- [ ] done_evidence 已填写（tests、logs 非空）
 
-**失败处理**: Developer 修复代码后重试。超过 max_retries 标记 failed。
+**失败处理**: Verifier 标记 rework，Developer 修复后重新提交。超过 max_retries 标记 failed。
 
 ### Gate 4: L1 回归
 
@@ -96,11 +98,12 @@ Gate 7: 最终验收         → 全量测试 + lint + E2E
 
 ### Gate 6: 代码审查
 
-**触发时机**: CR 标记为 ready_for_review
-**检查内容**: 见 `agents/reviewer.md` 审查清单
+**触发时机**: CR 标记为 ready_for_review（已通过 Verifier 验收）
+**检查内容**: 见 `agents/reviewer.md` 审查清单（含维度 A-E）
 **裁决规则**:
 - 有 critical/high → REWORK
 - 有 2+ medium → REWORK
+- done_evidence 不完整 → REWORK
 - 仅 low → PASS（记录建议）
 
 **失败处理**: Developer 按 review_feedback 修复，重新提交

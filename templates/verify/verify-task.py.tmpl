@@ -4,12 +4,14 @@
 需求: {{TASK_TITLE}}
 生成时间: {{GENERATED_AT}}
 
-此脚本由 Analyst Agent 生成，Developer Agent 不可修改。
+此脚本由 Analyst Agent 生成，Developer Agent 和 Verifier Agent 不可修改。
 零 Mock，使用真实环境验证。
 """
 
+import json
 import sys
 import traceback
+from datetime import datetime, timezone
 
 
 def verify_ac1():
@@ -23,6 +25,18 @@ def verify_ac2():
 
 
 # 按需追加更多 verify_acN 函数
+
+
+def collect_evidence(results, task_id):
+    """收集 done_evidence（供 Verifier Agent 使用）"""
+    timestamp = datetime.now(timezone.utc).isoformat()
+    passed = sum(1 for _, s, _, _ in results if s == "PASS")
+    total = len(results)
+    return {
+        "tests": [f"{task_id} verify: {passed}/{total} PASS ({timestamp})"],
+        "logs": [f"{ac_id}: {status} - {desc}" for ac_id, status, desc, _ in results],
+        "notes": ["全部通过" if passed == total else "存在失败项，需要修复"],
+    }
 
 
 def main():
@@ -51,6 +65,12 @@ def main():
     print(f"\n{'='*50}")
     print(f"{{TASK_ID}} 验收结果: {passed}/{total} PASS")
 
+    # 输出 done_evidence JSON（供 Verifier 解析）
+    evidence = collect_evidence(results, "{{TASK_ID}}")
+    print(f"\n--- EVIDENCE_JSON ---")
+    print(json.dumps(evidence, indent=2, ensure_ascii=False))
+    print(f"--- END_EVIDENCE ---")
+
     if passed < total:
         print("\n未通过的验收标准:")
         for ac_id, status, desc, detail in results:
@@ -60,7 +80,7 @@ def main():
                     print(f"        {detail[:200]}")
         sys.exit(1)
     else:
-        print("全部通过!")
+        print("\n全部通过!")
         sys.exit(0)
 
 

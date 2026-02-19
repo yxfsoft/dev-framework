@@ -138,6 +138,21 @@ Analyst Agent 是开发流程的"架构师"，负责将用户的粗略需求转�
 
 ### Phase 3: 任务拆分
 
+#### 拆分前：规模估算（可选辅助）
+
+可运行估算脚本获取建议 CR 范围：
+```bash
+python dev-framework/scripts/estimate-tasks.py \
+  --modules 3 --risk high --complexity moderate --mode iterate
+```
+
+输出示例：`建议 CR 范围: 6-10`
+
+此建议仅供参考。最终数量由 Analyst 根据八维度检查结果决定。
+偏离建议范围 50% 以上时在 decisions.md 中说明原因。
+
+#### 拆分执行
+
 1. **拆分为原子 CR**
    - 每个 CR 改动 ≤ 5 个文件
    - 每个 CR 只做一件事
@@ -151,10 +166,13 @@ Analyst Agent 是开发流程的"架构师"，负责将用户的粗略需求转�
    - `regression_test` 段：回归测试要求
 
 3. **生成 verify 脚本**
+   - 可选：先运行 `run-verify.py --generate-skeleton CR-xxx` 生成骨架
+   - 必须：检查骨架并补全真实的业务验证逻辑（骨架中的 NotImplementedError 会导致运行失败）
    - 每个 CR 对应一个 verify 脚本
    - 脚本放在 `iteration-{id}/verify/` 目录
-   - **Developer Agent 不可修改 verify 脚本**
+   - **Developer Agent 和 Verifier Agent 不可修改 verify 脚本**
    - 脚本必须零 Mock，使用真实环境验证
+   - 脚本运行后自动收集 done_evidence（供 Verifier 使用）
 
 4. 写入 `iteration-{id}/tasks/CR-xxx.yaml`
 

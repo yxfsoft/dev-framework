@@ -90,7 +90,8 @@ fields:
     enum:
       - pending            # 待认领
       - in_progress        # 开发中
-      - ready_for_review   # 等待审查
+      - ready_for_verify   # 等待验收（Verifier 执行 L0 验收 + 证据收集）
+      - ready_for_review   # 等待审查（Reviewer 代码审查 + 裁决）
       - PASS               # 审查通过
       - rework             # 被打回
       - failed             # 超过重试上限
@@ -121,6 +122,24 @@ fields:
   notes:
     type: string
     description: "备注（Developer 填写已读文件等信息）"
+
+  done_evidence:
+    type: object
+    nullable: true
+    description: "验收证据归档（Verifier 填写，Developer 不可修改）"
+    properties:
+      tests:
+        type: array
+        items: string
+        description: "测试执行结果摘要"
+      logs:
+        type: array
+        items: string
+        description: "关键日志或命令输出摘要"
+      notes:
+        type: array
+        items: string
+        description: "补充说明"
 
   review_result:
     type: object

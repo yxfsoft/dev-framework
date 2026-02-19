@@ -45,11 +45,15 @@ acceptance_criteria:
 # 回归测试
 regression_test: "运行全量 L1，结果 ≥ 基线"
 
-# 状态
+# 状态（状态机: pending → in_progress → ready_for_verify → ready_for_review → PASS/rework/failed）
 status: pending
 owner: ""
 retries: 0
 depends: []
 commits: []
 notes: ""
+done_evidence:
+  tests: []
+  logs: []
+  notes: []
 review_result: null

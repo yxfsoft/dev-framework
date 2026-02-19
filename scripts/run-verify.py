@@ -112,6 +112,160 @@ def run_all_verify(project_dir: Path, iteration_id: str) -> None:
         sys.exit(1)
 
 
+def generate_skeleton(
+    project_dir: Path, iteration_id: str, task_id: str
+) -> None:
+    """从任务 YAML 的 acceptance_criteria 自动生成 verify 脚本骨架。
+
+    骨架包含每条 criteria 对应的 verify 函数（含 NotImplementedError 占位）
+    和 done_evidence 自动收集逻辑。Analyst 必须检查并补全业务验证逻辑。
+    """
+    import yaml
+
+    task_path = (
+        project_dir
+        / ".claude"
+        / "dev-state"
+        / iteration_id
+        / "tasks"
+        / f"{task_id}.yaml"
+    )
+
+    if not task_path.exists():
+        print(f"错误: 任务文件不存在: {task_path}")
+        sys.exit(1)
+
+    task = yaml.safe_load(task_path.read_text(encoding="utf-8"))
+    criteria = task.get("acceptance_criteria", [])
+    title = task.get("title", "未知任务")
+
+    if not criteria:
+        print(f"错误: {task_id} 无 acceptance_criteria")
+        sys.exit(1)
+
+    # 生成脚本
+    from datetime import datetime, timezone
+
+    now = datetime.now(timezone.utc).isoformat()
+    lines = [
+        '#!/usr/bin/env python3',
+        '"""',
+        f'{task_id} 验收脚本',
+        f'需求: {title}',
+        f'生成时间: {now}',
+        '',
+        '此脚本骨架由 run-verify.py --generate-skeleton 自动生成。',
+        'Analyst 必须补全每个 verify 函数的业务验证逻辑。',
+        'Developer Agent 和 Verifier Agent 不可修改此脚本。',
+        '零 Mock，使用真实环境验证。',
+        '"""',
+        '',
+        'import json',
+        'import sys',
+        'import traceback',
+        'from datetime import datetime, timezone',
+        '',
+    ]
+
+    # 生成每个 criteria 的 verify 函数
+    for i, ac in enumerate(criteria):
+        ac_id = ac.get("id", f"{task_id}-AC{i+1}")
+        ac_desc = ac.get("desc", f"验收标准 {i+1}")
+        lines.extend([
+            f'def verify_{ac_id.lower().replace("-", "_")}():',
+            f'    """{ac_desc}"""',
+            f'    # TODO: Analyst 必须补全此函数的验证逻辑',
+            f'    raise NotImplementedError("Analyst 必须补全: {ac_desc}")',
+            '',
+        ])
+
+    # 生成 collect_evidence 函数
+    lines.extend([
+        '',
+        'def collect_evidence(results, task_id):',
+        '    """收集 done_evidence（供 Verifier 使用）"""',
+        '    timestamp = datetime.now(timezone.utc).isoformat()',
+        '    passed = sum(1 for _, s, _, _ in results if s == "PASS")',
+        '    total = len(results)',
+        '    return {',
+        '        "tests": [f"{task_id} verify: {passed}/{total} PASS ({timestamp})"],',
+        '        "logs": [f"{ac_id}: {status} - {desc}" for ac_id, status, desc, _ in results],',
+        '        "notes": ["全部通过" if passed == total else "存在失败项，需要修复"],',
+        '    }',
+        '',
+    ])
+
+    # 生成 main
+    criteria_list = []
+    for i, ac in enumerate(criteria):
+        ac_id = ac.get("id", f"{task_id}-AC{i+1}")
+        ac_desc = ac.get("desc", f"验收标准 {i+1}")
+        func_name = f'verify_{ac_id.lower().replace("-", "_")}'
+        criteria_list.append(f'        ("{ac_id}", "{ac_desc}", {func_name}),')
+
+    lines.extend([
+        '',
+        'def main():',
+        '    results = []',
+        '    criteria = [',
+    ])
+    lines.extend(criteria_list)
+    lines.extend([
+        '    ]',
+        '',
+        '    for ac_id, desc, fn in criteria:',
+        '        try:',
+        '            fn()',
+        '            results.append((ac_id, "PASS", desc, ""))',
+        '            print(f"  PASS  {ac_id}: {desc}")',
+        '        except AssertionError as e:',
+        '            results.append((ac_id, "FAIL", desc, str(e)))',
+        '            print(f"  FAIL  {ac_id}: {desc}")',
+        '            print(f"        原因: {e}")',
+        '        except NotImplementedError as e:',
+        '            results.append((ac_id, "ERROR", desc, str(e)))',
+        '            print(f"  ERROR {ac_id}: {desc}")',
+        '            print(f"        未实现: {e}")',
+        '        except Exception as e:',
+        '            results.append((ac_id, "ERROR", desc, traceback.format_exc()))',
+        '            print(f"  ERROR {ac_id}: {desc}")',
+        '            print(f"        异常: {e}")',
+        '',
+        '    passed = sum(1 for _, s, _, _ in results if s == "PASS")',
+        '    total = len(results)',
+        f'    print(f"\\n{{"="*50}}")',
+        f'    print(f"{task_id} 验收结果: {{passed}}/{{total}} PASS")',
+        '',
+        '    # 输出 done_evidence JSON（供 Verifier 解析）',
+        f'    evidence = collect_evidence(results, "{task_id}")',
+        '    print(f"\\n--- EVIDENCE_JSON ---")',
+        '    print(json.dumps(evidence, indent=2, ensure_ascii=False))',
+        '    print(f"--- END_EVIDENCE ---")',
+        '',
+        '    if passed < total:',
+        '        sys.exit(1)',
+        '    else:',
+        '        print("\\n全部通过!")',
+        '        sys.exit(0)',
+        '',
+        '',
+        'if __name__ == "__main__":',
+        '    main()',
+    ])
+
+    verify_dir = (
+        project_dir / ".claude" / "dev-state" / iteration_id / "verify"
+    )
+    verify_dir.mkdir(parents=True, exist_ok=True)
+    verify_path = verify_dir / f"{task_id}.py"
+    verify_path.write_text('\n'.join(lines), encoding="utf-8")
+
+    print(f"骨架脚本已生成: {verify_path}")
+    print(f"包含 {len(criteria)} 个验收函数 + done_evidence 收集逻辑")
+    print(f"\n注意: Analyst 必须检查并补全每个 verify 函数的业务验证逻辑！")
+    print(f"骨架中的 NotImplementedError 会导致运行时直接报错。")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="运行验收脚本")
     parser.add_argument("--project-dir", required=True, help="项目目录路径")
@@ -120,11 +274,18 @@ def main() -> None:
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--task-id", help="单个任务 ID")
     group.add_argument("--all", action="store_true", help="运行所有验收脚本")
+    group.add_argument(
+        "--generate-skeleton",
+        metavar="TASK_ID",
+        help="从任务 YAML 自动生成 verify 脚本骨架（Analyst 辅助）",
+    )
 
     args = parser.parse_args()
     project_dir = Path(args.project_dir).resolve()
 
-    if args.all:
+    if args.generate_skeleton:
+        generate_skeleton(project_dir, args.iteration_id, args.generate_skeleton)
+    elif args.all:
         run_all_verify(project_dir, args.iteration_id)
     else:
         passed = run_single_verify(project_dir, args.iteration_id, args.task_id)

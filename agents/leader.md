@@ -90,6 +90,12 @@ auto-loop: 全自动执行
   - 检测失败（连续失败计数）
 - 管理集成检查点
 
+#### Phase 3.5: 独立验收
+- 委托 Verifier Agent 对 ready_for_verify 的 CR 执行 L0 验收
+- Verifier 运行 verify 脚本并收集 done_evidence
+- 验收通过 → 标记 ready_for_review
+- 验收失败 → 标记 rework，通知 Developer 修复
+
 #### Phase 4: 审查验收
 - 委托 Reviewer Agent 审查 ready_for_review 的 CR
 - 处理 REWORK：通知 Developer 修复
@@ -109,9 +115,9 @@ auto-loop: 全自动执行
 ### 4.1 团队组建
 
 ```
-如果 CR 数量 ≤ 3: 不建团队，Leader 兼任 Developer
-如果 CR 数量 4-8: 1 Leader + 1-2 Developer + 1 Reviewer
-如果 CR 数量 > 8: 1 Leader + 2-3 Developer + 1 Reviewer
+如果 CR 数量 ≤ 3: 不建团队，Leader 兼任 Developer 和 Verifier
+如果 CR 数量 4-8: 1 Leader + 1-2 Developer + 1 Verifier + 1 Reviewer
+如果 CR 数量 > 8: 1 Leader + 2-3 Developer + 1 Verifier + 1 Reviewer
 ```
 
 ### 4.2 任务分配策略
@@ -173,7 +179,18 @@ def auto_loop():
                 stop_with_report("连续失败达到上限")
             continue
 
-        # 验收
+        # 验收（Verifier 独立执行）
+        task.status = "ready_for_verify"
+        verify_ok = verifier_verify(task)
+        if not verify_ok:
+            task.status = "rework"
+            task.retries += 1
+            if task.retries > max_retries:
+                task.status = "failed"
+                consecutive_failures += 1
+            continue
+
+        # 审查
         task.status = "ready_for_review"
         review = reviewer_check(task)
         if review == "PASS":
@@ -245,9 +262,11 @@ def auto_loop():
 | 需求确认 | requirement-spec.md |
 | 任务拆分完成 | tasks/*.yaml + verify/*.py |
 | 任务状态变更 | tasks/CR-xxx.yaml |
+| 验收证据收集 | tasks/CR-xxx.yaml (done_evidence) |
 | 关键决策 | decisions.md |
 | 经验教训 | experience-log.md |
 | 批次完成 | checkpoints/cp-xxx.md |
+| Team 并行批次完成 | ledger/session-{date}-{seq}.md |
 | Session 结束 | session-state.json + 最终 checkpoint |
 
 ### Checkpoint 格式

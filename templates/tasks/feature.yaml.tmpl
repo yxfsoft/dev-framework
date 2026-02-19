@@ -31,7 +31,7 @@ acceptance_criteria:
     desc: "{{CRITERION_2}}"
     status: FAIL
 
-# 状态（状态机: pending → in_progress → ready_for_review → PASS/rework/failed）
+# 状态（状态机: pending → in_progress → ready_for_verify → ready_for_review → PASS/rework/failed）
 status: pending
 owner: ""
 retries: 0
@@ -39,7 +39,11 @@ retries: 0
 # 依赖
 depends: []
 
-# 执行记录（Developer/Reviewer 填写）
+# 执行记录（Developer/Verifier/Reviewer 填写）
 commits: []
 notes: ""
+done_evidence:
+  tests: []
+  logs: []
+  notes: []
 review_result: null

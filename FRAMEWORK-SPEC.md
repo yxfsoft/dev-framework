@@ -1,6 +1,6 @@
 # Dev-Framework 规格书
 
-> 版本: 1.0
+> 版本: 1.1
 > 统一多代理协作开发框架 — 覆盖首次开发与多轮迭代
 
 ---
@@ -60,7 +60,8 @@ Mock 仅在以下白名单场景允许使用（必须在代码中声明理由）
 
 ### P4: Agent 不可自评通过
 
-开发 Agent 只能将任务标记为 `ready_for_review`，不能标记为 `PASS`。
+开发 Agent 只能将任务标记为 `ready_for_verify`，不能标记为 `PASS` 或 `ready_for_review`。
+Verifier Agent 独立执行验收后可标记为 `ready_for_review` 或 `rework`。
 只有 Review Agent 或质量门控脚本才能将任务标记为 `PASS`。
 Review Agent 可以将任务打回 `rework`。
 
@@ -104,8 +105,21 @@ Review Agent 可以将任务打回 `rework`。
 |-------|------|---------|
 | Leader | 全部 | 编排协调、任务分配、进度管控、用户交互 |
 | Analyst | 只读代码 + 写文档/脚本 | 需求深化、影响分析、任务拆分、生成 verify 脚本 |
-| Developer | 读写代码 | 编码实现 + L0/L1 验证 |
+| Developer | 读写代码 | 编码实现 + L1 测试 + 基线回归 |
+| Verifier | 只读代码 + 运行验证 + 写 evidence | 独立验收执行（L0）+ 证据收集 |
 | Reviewer | 只读代码 + 运行测试 + 更新任务状态 | 独立审查 + L2 验证 + 打回权 |
+
+**权限分离矩阵**：
+
+```
+           | 读代码 | 写代码 | 改 verify | 改任务 | 写 evidence | 标 PASS |
+-----------|--------|--------|----------|--------|------------|---------|
+Leader     |   ✓    |   ✓    |    ✓     |   ✓    |     ✓      |    ✓    |
+Analyst    |   ✓    |   ✗    |    ✓     |   ✓    |     ✗      |    ✗    |
+Developer  |   ✓    |   ✓    |    ✗     |  部分  |     ✗      |    ✗    |
+Verifier   |   ✓    |   ✗    |    ✗     |  部分  |     ✓      |    ✗    |
+Reviewer   |   ✓    |   ✗    |    ✗     |   ✓    |     ✗      |    ✓    |
+```
 
 ### 3.3 工作流阶段
 
@@ -131,13 +145,20 @@ Phase 2: 影响分析与任务拆分
 
 Phase 3: 开发执行
   ├── Developer Agent(s) 按依赖顺序认领 CR
-  ├── 每个 CR: 读代码 → 编码 → L0 验收 → L1 测试 → 回归 → commit
+  ├── 每个 CR: 读代码 → 编码 → 自检 → L1 测试 → 回归 → commit
+  ├── Developer 标记 ready_for_verify
   ├── 并行度 ≤ 3
   └── 每批完成后运行集成检查点
 
+Phase 3.5: 独立验收
+  ├── Verifier Agent 对 ready_for_verify 的 CR 执行 L0 验收
+  ├── 运行 verify 脚本 + 收集 done_evidence
+  ├── 通过 → 标记 ready_for_review
+  └── 失败 → 标记 rework
+
 Phase 4: 审查验收
   ├── Reviewer Agent 独立审查每个 CR
-  ├── 检查: 代码质量 + 回归安全 + 集成正确 + 需求覆盖
+  ├── 检查: 代码质量 + 回归安全 + 集成正确 + 需求覆盖 + 证据完整性
   └── PASS / REWORK
 
 Phase 5: 交付
@@ -171,8 +192,10 @@ Phase 5: 交付
     ├── verify/                     # 验收脚本（不可修改）
     │   ├── CR-001.py
     │   └── ...
-    ├── checkpoints/                # 检查点快照
+    ├── checkpoints/                # 检查点快照（全局进度，每 2-3 CR）
     │   └── cp-001.md
+    ├── ledger/                     # Session Ledger（Team 并行记录，每轮 Team 结束）
+    │   └── session-20260219-01.md
     └── decisions.md                # 关键决策日志
 ```
 
@@ -272,8 +295,9 @@ auto_loop:
 ```
 L0 验收测试: 零 Mock，真实环境运行
   → 每个 CR 的 acceptance_criteria 对应一个 verify 脚本
-  → 由 Analyst 生成，Developer 不可修改
-  → Developer 完成编码后必须运行并全部 PASS
+  → 由 Analyst 生成，Developer 和 Verifier 不可修改
+  → 由 Verifier Agent 独立执行（非 Developer 自行运行）
+  → Verifier 同时收集 done_evidence（验收证据归档）
 
 L1 单元测试: 最小 Mock（仅白名单场景）
   → 覆盖逻辑分支和边界条件
@@ -288,9 +312,14 @@ L2 集成测试: 零 Mock，完整链路
 ### 6.2 任务状态机
 
 ```
-pending → in_progress → ready_for_review → PASS
-                ↑              │
-                └── rework ←───┘  (Reviewer 打回)
+pending → in_progress → ready_for_verify → ready_for_review → PASS
+               ↑                                    │
+               └────────────── rework ──────────────┘
+
+执行者:
+  Developer  → pending 到 ready_for_verify
+  Verifier   → ready_for_verify 到 ready_for_review（或 rework）
+  Reviewer   → ready_for_review 到 PASS（或 rework）
 
 特殊状态:
   failed    — 超过最大重试次数
@@ -437,3 +466,12 @@ python dev-framework/scripts/init-iteration.py \
 
 框架自身的更新不影响已有项目。已有项目中的 Agent 定义是框架的副本，
 可以通过重新运行 init 脚本更新（保留项目特定的定制部分）。
+
+---
+
+## 十一、架构决策记录
+
+框架的核心设计决策记录在 `ARCHITECTURE.md` 中。
+每条 ADR（Architecture Decision Record）包含：决策、原因、替代方案、后果。
+
+新增或修改设计决策时，必须同步更新 ARCHITECTURE.md。
