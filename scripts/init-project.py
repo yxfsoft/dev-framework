@@ -106,7 +106,7 @@ def init_project(project_dir: Path, requirement_doc: str, tech_stack: str) -> No
     baseline_path.write_text(json.dumps(baseline, indent=2, ensure_ascii=False))
     print(f"  生成: baseline.json")
 
-    # 5. 生成 run-config.yaml
+    # 5. 生成 run-config.yaml（从 schemas/run-config.yaml 复制默认配置）
     run_config_src = framework_dir / "schemas" / "run-config.yaml"
     run_config_dst = project_dir / ".claude" / "dev-state" / "run-config.yaml"
     shutil.copy2(run_config_src, run_config_dst)
@@ -140,18 +140,29 @@ def init_project(project_dir: Path, requirement_doc: str, tech_stack: str) -> No
         file_path.write_text(content, encoding="utf-8")
         print(f"  生成: {rel_path}")
 
-    # 8. 生成 CLAUDE.md 提示
+    # 8. 生成 CLAUDE.md（基于模板，替换已知变量，其余需手动填写）
     claude_md_path = project_dir / ".claude" / "CLAUDE.md"
     if not claude_md_path.exists():
-        claude_md_path.write_text(
-            f"# CLAUDE.md — (待定制)\n\n"
-            f"> 请基于 dev-framework/templates/project/CLAUDE.md.tmpl 模板，\n"
-            f"> 结合项目实际情况定制此文件。\n\n"
-            f"技术栈: {tech_stack}\n"
-            f"需求文档: {requirement_doc}\n",
-            encoding="utf-8",
-        )
-        print(f"  生成: CLAUDE.md (需手动定制)")
+        tmpl_path = framework_dir / "templates" / "project" / "CLAUDE.md.tmpl"
+        if tmpl_path.exists():
+            content = tmpl_path.read_text(encoding="utf-8")
+            content = content.replace("{{PROJECT_NAME}}", project_dir.name)
+            content = content.replace("{{TECH_STACK}}", tech_stack)
+            # 以下占位符需要用户手动填写
+            # {{PROJECT_DESCRIPTION}}, {{PROJECT_OVERVIEW}}, {{PROJECT_URL}},
+            # {{PACKAGE_MANAGERS}}, {{CODE_STYLE}}, {{DIRECTORY_STRUCTURE}},
+            # {{SECURITY_POLICY}}
+            claude_md_path.write_text(content, encoding="utf-8")
+        else:
+            claude_md_path.write_text(
+                f"# CLAUDE.md — {project_dir.name}\n\n"
+                f"> 请基于 dev-framework/templates/project/CLAUDE.md.tmpl 模板，\n"
+                f"> 结合项目实际情况定制此文件。\n\n"
+                f"技术栈: {tech_stack}\n"
+                f"需求文档: {requirement_doc}\n",
+                encoding="utf-8",
+            )
+        print(f"  生成: CLAUDE.md (需手动定制 {{VARIABLE}} 占位符)")
 
     # 9. 生成 ARCHITECTURE.md
     arch_path = project_dir / "ARCHITECTURE.md"

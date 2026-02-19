@@ -37,8 +37,9 @@ def run_single_verify(
     )
 
     if not verify_script.exists():
-        print(f"  SKIP  {task_id}: verify 脚本不存在 ({verify_script})")
-        return True  # 无脚本不阻塞
+        print(f"  FAIL  {task_id}: verify 脚本不存在 ({verify_script})")
+        print(f"        每个 CR 必须有独立的 verify 脚本，请 Analyst 先生成")
+        return False  # 缺失 verify 脚本视为失败
 
     print(f"\n{'='*40}")
     print(f"运行验收: {task_id}")
@@ -69,11 +70,41 @@ def run_single_verify(
 def update_task_criteria(
     project_dir: Path, iteration_id: str, task_id: str, passed: bool
 ) -> None:
-    """更新任务文件中的验收状态（简化版，仅标记整体状态）"""
-    # 注意：完整实现应解析 verify 脚本输出，逐条更新 criteria
-    # 这里是简化版，仅在日志中记录
-    status = "PASS" if passed else "FAIL"
-    print(f"\n  验收结果: {task_id} = {status}")
+    """更新任务文件中的验收状态。
+
+    将任务 YAML 的 status 字段更新为 ready_for_review（通过）或 rework（失败）。
+    注意：逐条 acceptance_criteria 的状态更新由 Verifier Agent 手动执行，
+    此函数仅更新任务整体状态。
+    """
+    status_label = "PASS" if passed else "FAIL"
+    print(f"\n  验收结果: {task_id} = {status_label}")
+
+    task_path = (
+        project_dir / ".claude" / "dev-state" / iteration_id / "tasks" / f"{task_id}.yaml"
+    )
+    if not task_path.exists():
+        print(f"  WARN  任务文件不存在，跳过状态更新: {task_path}")
+        return
+
+    try:
+        import yaml
+
+        content = task_path.read_text(encoding="utf-8")
+        task = yaml.safe_load(content)
+        if not task:
+            return
+
+        new_status = "ready_for_review" if passed else "rework"
+        task["status"] = new_status
+        task_path.write_text(
+            yaml.dump(task, allow_unicode=True, default_flow_style=False, sort_keys=False),
+            encoding="utf-8",
+        )
+        print(f"  任务状态已更新: {task_id} → {new_status}")
+    except ImportError:
+        print(f"  WARN  PyYAML 未安装，无法自动更新任务文件")
+    except Exception as e:
+        print(f"  WARN  更新任务文件失败: {e}")
 
 
 def run_all_verify(project_dir: Path, iteration_id: str) -> None:
@@ -233,7 +264,7 @@ def generate_skeleton(
         '',
         '    passed = sum(1 for _, s, _, _ in results if s == "PASS")',
         '    total = len(results)',
-        f'    print(f"\\n{{"="*50}}")',
+        '    print("\\n" + "=" * 50)',
         f'    print(f"{task_id} 验收结果: {{passed}}/{{total}} PASS")',
         '',
         '    # 输出 done_evidence JSON（供 Verifier 解析）',

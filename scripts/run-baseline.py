@@ -111,7 +111,7 @@ def run_baseline(project_dir: Path, iteration_id: str) -> None:
     if l1_parsed["failed"] > 0:
         # 重新运行获取失败的测试名
         detail_result = subprocess.run(
-            [sys.executable, "-m", "pytest", "tests/unit/", "-q", "--tb=line", "-x"],
+            [sys.executable, "-m", "pytest", "tests/unit/", "-q", "--tb=line"],
             capture_output=True,
             text=True,
             cwd=project_dir,

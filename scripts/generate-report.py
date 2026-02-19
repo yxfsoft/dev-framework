@@ -31,8 +31,8 @@ def load_tasks(project_dir: Path, iteration_id: str) -> list[dict]:
                 task = yaml.safe_load(content)
                 if task:
                     tasks.append(task)
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"  WARN: 解析 {f} 失败: {e}", file=sys.stderr)
     return tasks
 
 
@@ -62,8 +62,9 @@ def generate_report(project_dir: Path, iteration_id: str) -> None:
     first_pass_rate = first_pass / total if total > 0 else 0
 
     # git 统计
+    git_diff_ref = f"HEAD~{total}" if total > 0 else "HEAD"
     git_stat = subprocess.run(
-        ["git", "diff", "--stat", f"HEAD~{total}"],
+        ["git", "diff", "--stat", git_diff_ref],
         capture_output=True, text=True, cwd=project_dir,
     )
 

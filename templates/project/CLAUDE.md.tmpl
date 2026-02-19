@@ -69,8 +69,15 @@
 ### Agent 定义
 - `.claude/agents/analyst.md` — 需求分析
 - `.claude/agents/developer.md` — 开发执行
-- `.claude/agents/reviewer.md` — 审查验收
+- `.claude/agents/verifier.md` — 独立验收
+- `.claude/agents/reviewer.md` — 代码审查
 - `.claude/agents/leader.md` — 编排协调
+
+> 注意：以下 `{{VARIABLE}}` 格式的占位符需要在项目初始化后手动填写：
+> `{{PROJECT_DESCRIPTION}}`, `{{PROJECT_OVERVIEW}}`, `{{TECH_STACK}}`,
+> `{{PACKAGE_MANAGERS}}`, `{{CODE_STYLE}}`, `{{DIRECTORY_STRUCTURE}}`,
+> `{{SECURITY_POLICY}}`, `{{PROJECT_URL}}`。
+> `{{PROJECT_NAME}}` 由 init-project.py 自动替换。
 
 ### 状态目录
 - `.claude/dev-state/` — 开发状态（迭代/任务/检查点）

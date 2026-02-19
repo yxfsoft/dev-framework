@@ -29,7 +29,7 @@
   },
 
   "example": {
-    "iteration": "iteration-3",
+    "iteration": "iter-3",
     "timestamp": "2026-02-19T14:00:00",
     "git_commit": "abc1234",
     "test_results": {

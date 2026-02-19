@@ -1,0 +1,3 @@
+# Dev-Framework 依赖
+# 以下脚本需要 PyYAML: session-manager.py, generate-report.py, run-verify.py
+PyYAML>=6.0

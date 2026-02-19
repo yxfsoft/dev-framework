@@ -33,7 +33,7 @@
   },
 
   "example": {
-    "project": "grzsk",
+    "project": "my-project",
     "mode": "init",
     "created_at": "2026-02-19T14:00:00",
     "features": [

@@ -88,13 +88,13 @@ def main() -> None:
     )
     parser.add_argument(
         "--risk",
-        choices=sorted(RISK_MULTIPLIER),
+        choices=["low", "medium", "high", "critical"],
         required=True,
         help="风险等级",
     )
     parser.add_argument(
         "--complexity",
-        choices=sorted(COMPLEXITY_FACTOR),
+        choices=["simple", "moderate", "complex"],
         required=True,
         help="需求复杂度",
     )

@@ -1,0 +1,9 @@
+{
+  "id": "iter-1",
+  "mode": "iterate",
+  "status": "completed",
+  "created_at": "2026-02-19T10:00:00+00:00",
+  "requirement_summary": "修复搜索超时问题；优化搜索结果排序",
+  "phase": "phase_5",
+  "last_checkpoint": "cp-002.md"
+}

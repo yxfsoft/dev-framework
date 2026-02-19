@@ -27,6 +27,7 @@
 │   ├── agents/              # 从框架复制的 Agent 定义
 │   │   ├── analyst.md
 │   │   ├── developer.md
+│   │   ├── verifier.md
 │   │   ├── reviewer.md
 │   │   └── leader.md
 │   ├── dev-state/           # 开发状态目录

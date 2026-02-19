@@ -181,7 +181,7 @@ Phase 5: 交付
 ├── experience-log.md               # 经验教训累积
 ├── run-config.yaml                 # 运行模式配置
 │
-└── iteration-{id}/                 # 每轮迭代独立目录
+└── {iteration-id}/                 # 每轮迭代独立目录（如 iter-3 或 iteration-0）
     ├── manifest.json               # 迭代元信息（阶段/进度/时间戳）
     ├── requirement-raw.md          # 用户原始需求
     ├── requirement-spec.md         # 细化后的需求规格
@@ -194,7 +194,7 @@ Phase 5: 交付
     │   └── ...
     ├── checkpoints/                # 检查点快照（全局进度，每 2-3 CR）
     │   └── cp-001.md
-    ├── ledger/                     # Session Ledger（Team 并行记录，每轮 Team 结束）
+    ├── ledger/                     # Session Ledger（Team 并行记录，由 session-manager.py 按需创建）
     │   └── session-20260219-01.md
     └── decisions.md                # 关键决策日志
 ```

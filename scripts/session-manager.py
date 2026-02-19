@@ -82,8 +82,8 @@ def cmd_checkpoint(project_dir: Path) -> None:
                 task = yaml.safe_load(f.read_text(encoding="utf-8"))
                 if task:
                     tasks.append(task)
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"  WARN: 解析 {f} 失败: {e}", file=__import__('sys').stderr)
 
     # 生成检查点
     now = datetime.now(timezone.utc).isoformat()
@@ -199,8 +199,8 @@ def cmd_ledger(project_dir: Path) -> None:
                 task = yaml.safe_load(f.read_text(encoding="utf-8"))
                 if task:
                     tasks.append(task)
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"  WARN: 解析 {f} 失败: {e}", file=__import__('sys').stderr)
 
     # 生成 ledger 内容
     content = f"# Session Ledger — {date_str}-{seq:02d}\n\n"

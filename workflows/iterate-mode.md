@@ -42,7 +42,9 @@ git pull --rebase origin main
 pytest tests/ -q --tb=no > baseline_output.txt
 
 # 记录结果
-python dev-framework/scripts/run-baseline.py --output .claude/dev-state/baseline.json
+python dev-framework/scripts/run-baseline.py \
+    --project-dir "D:/my-project" \
+    --iteration-id "iter-3"
 ```
 
 基线内容：
@@ -152,9 +154,9 @@ Interactive 模式下等待用户审批。
 ### Step 3.1: 团队组建
 
 ```
-CR ≤ 3: Leader 兼 Developer，无需建团队
-CR 4-8: 1 Leader + 1-2 Developer + 1 Reviewer
-CR > 8: 1 Leader + 2-3 Developer + 1 Reviewer
+CR ≤ 3: Leader 兼任 Developer 和 Verifier，无需建团队
+CR 4-8: 1 Leader + 1-2 Developer + 1 Verifier + 1 Reviewer
+CR > 8: 1 Leader + 2-3 Developer + 1 Verifier + 1 Reviewer
 ```
 
 ### Step 3.2: 任务分配
@@ -171,7 +173,8 @@ CR > 8: 1 Leader + 2-3 Developer + 1 Reviewer
 每个 Developer 按 `agents/developer.md` 的工作流执行：
 
 ```
-读代码 → 编码 → L0 验收 → L1 测试 → 基线回归 → commit → ready_for_review
+读代码 → 编码 → 编码自检 → L1 测试 → 基线回归 → commit → ready_for_verify
+  → [Verifier 独立 L0 验收 + 证据收集] → ready_for_review
 ```
 
 ### Step 3.4: 集成检查点

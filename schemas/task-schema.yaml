@@ -19,7 +19,7 @@ fields:
 
   id:
     type: string
-    pattern: "^(CR|INF|F)-\\d{3}$"
+    pattern: "^(CR|INF|F)-\\d{3,}$"
     description: "任务唯一标识"
 
   type:
@@ -34,8 +34,8 @@ fields:
 
   iteration:
     type: string
-    pattern: "^iteration-\\d+$"
-    description: "所属迭代 ID"
+    pattern: "^(iteration|iter)-\\d+$"
+    description: "所属迭代 ID（如 iter-3 或 iteration-3）"
 
   title:
     type: string

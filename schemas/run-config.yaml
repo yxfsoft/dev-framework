@@ -1,5 +1,6 @@
-# 运行模式配置 Schema
-# 此文件定义 .claude/dev-state/run-config.yaml 的格式
+# 运行模式配置 Schema + 默认值
+# 此文件既是格式定义文档，也作为默认配置复制到项目中
+# init-project.py 会将此文件复制到 .claude/dev-state/run-config.yaml
 
 ---
 

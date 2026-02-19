@@ -1,0 +1,77 @@
+id: CR-001
+type: bug_fix
+iteration: iter-1
+title: 修复搜索 API 超时问题
+owner: dev-agent-1
+
+design:
+  approach: |
+    在 search_service.py 中添加查询超时配置，默认 5s。
+    使用 asyncio.wait_for 包裹 Milvus 查询调用。
+  why_this_approach: |
+    asyncio.wait_for 是标准库提供的超时控制方式，
+    无需引入额外依赖，且与现有异步架构一致。
+  edge_cases:
+    - 超时后连接是否正确释放
+    - 并发查询时的超时隔离
+
+affected_files:
+  - services/query/search_service.py
+  - config/default.yaml
+  - tests/unit/test_search_service.py
+
+current_behavior: |
+  搜索 API 在数据量大时偶尔超过 30s 无响应，前端报 504。
+
+expected_behavior: |
+  搜索 API 在 5s 内返回结果或返回超时错误（HTTP 408）。
+
+reproduction_steps: |
+  1. 向 Milvus 插入 100 万条测试数据
+  2. 发起模糊搜索请求
+  3. 观察响应时间，偶发 >30s
+
+root_cause: |
+  Milvus 查询无超时限制，当数据量大且 nprobe 较高时查询耗时不可控。
+
+acceptance_criteria:
+  - id: CR-001-AC1
+    desc: 搜索 API 在 5s 内返回结果或超时错误
+    status: PASS
+  - id: CR-001-AC2
+    desc: 超时错误返回 HTTP 408 + 错误提示
+    status: PASS
+  - id: CR-001-AC3
+    desc: 超时配置可通过 config/default.yaml 修改
+    status: PASS
+
+regression_test: |
+  tests/unit/test_search_service.py::test_search_timeout
+
+new_test: |
+  tests/unit/test_search_service.py::test_search_timeout_returns_408
+
+status: PASS
+retries: 0
+commits:
+  - "abc1234"
+
+done_evidence:
+  tests:
+    - "CR-001 verify: 3/3 PASS (2026-02-19T11:30:00+00:00)"
+  logs:
+    - "CR-001-AC1: PASS - 搜索在 2.3s 内返回"
+    - "CR-001-AC2: PASS - 超时返回 408 + JSON 错误体"
+    - "CR-001-AC3: PASS - 修改 search_timeout: 3 后生效"
+  notes:
+    - "全部通过"
+
+review_result:
+  reviewer: reviewer-agent
+  reviewed_at: "2026-02-19T12:00:00+00:00"
+  verdict: PASS
+  notes: "修复方案合理，测试覆盖充分"
+  issues: []
+
+notes: |
+  已读文件: search_service.py (380行), search_router.py (120行), default.yaml
