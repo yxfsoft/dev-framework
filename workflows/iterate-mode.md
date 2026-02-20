@@ -19,17 +19,27 @@
 
 ```bash
 cd {project}
-git pull --rebase origin main
+git pull --rebase origin <主分支>   # 根据项目实际主分支名称（main / master 等）
 ```
 
 ### Step 0.2: 读取项目文档
 
 - CLAUDE.md — 项目规范和技术栈
 - ARCHITECTURE.md — 架构决策记录
-- .claude/dev-state/experience-log.md — 已知坑点
+- CLAUDE.md "已知坑点与最佳实践" 章节 — 已知坑点（v2.6 替代 experience-log.md）
 
 ### Step 0.3: 恢复上下文（如果是恢复的 session）
 
+**推荐方式**：运行 session-manager.py 自动恢复：
+
+```bash
+python <框架路径>/scripts/session-manager.py \
+    --project-dir "." resume
+```
+
+根据输出的"下一步"字段决定行动。如需详细信息，读取生成的 `resume-summary.md`。
+
+**备选方式**（仅当 session-manager.py 不可用时）：
 - 读 session-state.json
 - 读最新 checkpoint
 - 读 tasks/*.yaml
@@ -41,11 +51,15 @@ git pull --rebase origin main
 # 运行全量测试
 pytest tests/ -q --tb=no > baseline_output.txt
 
-# 记录结果（<框架路径> 为 dev-framework 仓库的根目录）
+# 记录结果
 python <框架路径>/scripts/run-baseline.py \
     --project-dir "." \
-    --iteration-id "iter-3"
+    --iteration-id "<迭代 ID>"
 ```
+
+> **`<框架路径>` 说明**：指 dev-framework 仓库的根目录（即包含 `scripts/`、`agents/`、`workflows/` 的目录）。
+> 获取方式：可通过环境变量（如 `DEV_FRAMEWORK_DIR`）、绝对路径、或相对于项目目录的路径指定。
+> 本文档中所有 `<框架路径>` 均指此目录。
 
 基线内容：
 ```json
@@ -88,7 +102,7 @@ Analyst 读取现有实现，理解当前行为：
 
 ### Step 1.4: 需求深化
 
-Analyst 按八维度检查，输出 requirement-spec.md。
+Analyst 按六维度需求深化（见 analyst.md Phase 1b），输出 requirement-spec.md。
 
 ### Step 1.5: 用户审批
 
@@ -133,8 +147,9 @@ Interactive 模式下等待用户审批。
 |---------|------|---------|
 | bug_fix | bug-fix.yaml.tmpl | 必须有复现步骤 + 回归测试 |
 | enhancement | enhancement.yaml.tmpl | 必须描述当前和期望行为 |
-| new_feature | new-feature.yaml.tmpl | 必须有集成点说明 |
+| new_feature | feature.yaml.tmpl | 必须有集成点说明 |
 | refactor | refactor.yaml.tmpl | 必须列出不变量 |
+| hotfix | hotfix.yaml.tmpl | 紧急修复快速通道：跳过 Analyst 分析、verify 脚本和 Reviewer 审查，但必须有 L1 基线回归通过 + decisions.md 记录（详见 leader.md "Hot-fix 快速通道"） |
 
 ### Step 2.3: 生成 verify 脚本
 
@@ -151,13 +166,14 @@ Interactive 模式下等待用户审批。
 
 ## Phase 3: 开发执行
 
-### Step 3.1: 团队组建
+### Step 3.1: 团队组建（强制角色分离）
 
-```
-CR ≤ 3: Leader 兼任 Developer 和 Verifier，无需建团队
-CR 4-8: 1 Leader + 1-2 Developer + 1 Verifier + 1 Reviewer
-CR > 8: 1 Leader + 2-3 Developer + 1 Verifier + 1 Reviewer
-```
+无论 CR 数量多少，必须组建包含全部五角色的完整团队：
+- CR 1-3: 1 Leader + 1 Analyst + 1 Developer + 1 Verifier + 1 Reviewer
+- CR 4-8: 1 Leader + 1 Analyst + 1-2 Developer + 1 Verifier + 1 Reviewer
+- CR > 8: 1 Leader + 1 Analyst + 2-3 Developer + 1 Verifier + 1 Reviewer
+
+角色分离是质量保障的底线，不因 CR 数量少而妥协。
 
 ### Step 3.2: 任务分配
 
@@ -185,6 +201,36 @@ CR > 8: 1 Leader + 2-3 Developer + 1 Verifier + 1 Reviewer
 3. 受影响模块 E2E 验证
 4. 无新增 TODO/FIXME/NotImplementedError
 5. git diff --stat 确认范围
+
+---
+
+## Phase 3.5: 独立验收
+
+Phase 3 开发完成后，由 Verifier Agent 独立执行 L0 验收，Developer 不参与。
+
+### Step 3.5.1: L0 验收
+
+Verifier 对每个 `ready_for_verify` 状态的 CR 执行：
+1. 运行 `verify/CR-xxx.py` 验收脚本
+2. 收集 done_evidence（测试结果、日志等）
+3. 验证所有 acceptance_criteria 满足
+
+### Step 3.5.2: 处理结果
+
+- **验收通过** → 标记 `ready_for_review`，进入 Phase 4
+- **验收失败** → 标记 `rework`，通知 Developer 修复后重新提交（回到 Phase 3）
+- 超过 `max_retries` 次重试仍失败 → 标记 `failed`
+
+### Step 3.5.3: Phase 转换检查
+
+所有 CR 验收完成后，运行门控检查：
+
+```bash
+python <框架路径>/scripts/phase-gate.py \
+    --project-dir "." \
+    --iteration-id "<迭代 ID>" \
+    --from phase_3.5 --to phase_4
+```
 
 ---
 
@@ -238,7 +284,7 @@ Reviewer 按 `agents/reviewer.md` 审查每个 ready_for_review 的 CR。
 - 删除行: 342
 
 ## 经验教训
-- {从 experience-log.md 提取}
+- {从 CLAUDE.md "已知坑点与最佳实践" 提取}
 
 ## 后续建议
 - {下一轮迭代建议}
@@ -248,15 +294,24 @@ Reviewer 按 `agents/reviewer.md` 审查每个 ready_for_review 的 CR。
 
 - manifest.json: status → completed
 - session-state.json: 清除当前任务
-- experience-log.md: 追加新经验
+- CLAUDE.md "已知坑点与最佳实践": 追加新经验
 
 ### Step 5.3: Git 提交
 
 ```bash
-git add .claude/dev-state/
-git commit -m "[dev-state] 完成: iter-3 迭代报告"
+# 仅提交业务代码和测试文件
+# 禁止提交 .claude/ 目录（框架文件不入 Git，见 FIX-20）
+# 根据实际项目结构选择要提交的目录/文件
+git add <已修改的业务代码和测试文件>
+git commit -m "[项目] 完成: <迭代 ID> 全部 CR"
 git push
 ```
+
+> 提示：具体需要 `git add` 哪些路径取决于项目结构。常见的有 `src/`、`tests/`、`config/`、`docs/` 等。
+> 可通过 `git status` 查看已修改文件列表，逐一确认后提交。
+
+> 注意：v2.6 起框架文件（.claude/dev-state/、task YAML、verify 脚本等）禁止提交到 Git。
+> 详见 agents/leader.md "Git 提交规范" 章节。
 
 ---
 

@@ -36,7 +36,10 @@ Analyst Agent 是开发流程的"架构师"，负责将用户的粗略需求转�
    - B) 需要协助完善后再拆分
    - C) 用户补充信息
 
-### Phase 1b: 需求深化（路径 B 时执行）
+### Phase 1b: 需求深化（路径 B 时执行，6 维度）
+
+> **说明**：此处的 6 维度用于需求深化（与用户逐维度确认），与拆分后的 8 维度覆盖检查（见"三、质量标准"）是不同体系。
+> 6 维度面向需求补全，8 维度面向 CR 覆盖验证。
 
 逐维度与用户确认，每个维度给出专业建议和选项：
 
@@ -104,7 +107,7 @@ Analyst Agent 是开发流程的"架构师"，负责将用户的粗略需求转�
   {每条可机器验证}
 ```
 
-写入 `iteration-{id}/requirement-spec.md`，等待用户审批。
+写入 `.claude/dev-state/{iteration-id}/requirement-spec.md`（如 `iter-0`、`iter-1`），等待用户审批。
 
 ---
 
@@ -134,7 +137,7 @@ Analyst Agent 是开发流程的"架构师"，负责将用户的粗略需求转�
    - tests/e2e/test_search_flow.py (需新增)
    ```
 
-3. 写入 `iteration-{id}/impact-analysis.md`
+3. 写入 `.claude/dev-state/{iteration-id}/impact-analysis.md`
 
 ### Phase 3: 任务拆分
 
@@ -148,7 +151,7 @@ python dev-framework/scripts/estimate-tasks.py \
 
 输出示例：`建议 CR 范围: 6-10`
 
-此建议仅供参考。最终数量由 Analyst 根据八维度检查结果决定。
+此建议仅供参考。最终数量由 Analyst 根据八维度覆盖检查（见"三、质量标准"）结果决定。
 偏离建议范围 50% 以上时在 decisions.md 中说明原因。
 
 #### 拆分前：七路径审视（必须）
@@ -162,7 +165,7 @@ python dev-framework/scripts/estimate-tasks.py \
 | Sad Path | 哪些外部依赖可能失败？失败后用户看到什么？ | |
 | Edge Path | 输入的极端情况？并发/竞态？资源极限？ | |
 | Perf Path | 数据量 10x 后还能用吗？哪里需要缓存/索引/超时？ | |
-| UX Path | （见下方 UX 专项审视） | |
+| UX Path | （见下方 UX 专项审视） | 见下方四步推导，结论回填此处 |
 | Guard Path | 输入可注入吗？谁有权限？敏感数据暴露了吗？ | |
 | Ops Path | 出问题怎么发现？怎么定位？哪些参数需要运行时可调？ | |
 
@@ -235,15 +238,65 @@ python dev-framework/scripts/estimate-tasks.py \
    - `regression_test` 段：回归测试要求
 
 3. **生成 verify 脚本**
-   - 可选：先运行 `run-verify.py --generate-skeleton CR-xxx` 生成骨架
+   - 可选：先运行 `python <框架路径>/scripts/run-verify.py --project-dir "." --iteration-id "iter-N" --generate-skeleton CR-xxx` 生成骨架
    - 必须：检查骨架并补全真实的业务验证逻辑（骨架中的 NotImplementedError 会导致运行失败）
    - 每个 CR 对应一个 verify 脚本
-   - 脚本放在 `iteration-{id}/verify/` 目录
+   - 脚本放在 `.claude/dev-state/{iteration-id}/verify/` 目录
    - **Developer Agent 和 Verifier Agent 不可修改 verify 脚本**
    - 脚本必须零 Mock，使用真实环境验证
    - 脚本运行后自动收集 done_evidence（供 Verifier 使用）
 
-4. 写入 `iteration-{id}/tasks/CR-xxx.yaml`
+### Verify 脚本质量标准（v2.6 FIX-03 强制）
+
+每个 verify 脚本必须满足以下**最低标准**，否则 Phase 2→3 门控将阻断：
+
+1. **功能型 CR**（new_feature / enhancement / bug_fix）：
+   - 必须至少包含 **1 个运行时断言**（import 被测模块 + 调用 + assert）
+   - 禁止全部为 `"xxx" in source` 类字符串检查
+   - 推荐：导入被测函数 → 构造输入 → 调用 → 断言输出
+
+2. **基础设施型 CR**（infrastructure / refactor）：
+   - 必须至少包含 **1 个配置可加载检查**（import config + 验证关键字段）
+   - 或包含 **1 个 subprocess.run 调用**（运行工具命令 + 检查返回码）
+
+3. **测试型 CR**：
+   - 必须运行 `pytest` 并检查通过数
+
+**反例（禁止）**：
+```python
+# 这种 verify 不会通过 Phase 2→3 门控
+assert "@retry" in source           # 纯字符串搜索
+assert "class ErrorResponse" in source  # 纯字符串搜索
+```
+
+**正例（推荐）**：
+```python
+# 功能型验证
+from src.sdk.client import APIClient
+client = APIClient(config)
+assert client.health_check() is True
+
+# 配置型验证
+import yaml
+config = yaml.safe_load(Path("config/default.yaml").read_text())
+assert "retry" in config and config["retry"]["max_attempts"] > 0
+```
+
+4. 写入 `.claude/dev-state/{iteration-id}/tasks/CR-xxx.yaml`
+
+---
+
+### Mock 生命周期审查（v2.6 FIX-22，每轮迭代 Phase 0/1）
+
+1. 扫描 `tests/` 目录下所有包含 `# MOCK-EXPIRE-WHEN:` 的文件
+2. 对每个 Mock，评估到期条件是否已满足：
+   - 环境变化（CI 升级、新硬件可用）
+   - 依赖变化（第三方服务提供了测试沙箱）
+   - 项目变化（本地化了原来的外部依赖）
+3. 如果条件已满足，创建类型为 `enhancement` 的 CR：
+   - 标题：`移除已过期 Mock: {文件名}`
+   - 内容：将 Mock 替换为真实调用，更新测试
+4. 将审查结论写入本轮 `requirement-spec.md` 的附录
 
 ---
 
@@ -265,7 +318,9 @@ python dev-framework/scripts/estimate-tasks.py \
 - [ ] 性能、安全维度已覆盖
 - [ ] 维度覆盖矩阵已填写（见下方）
 
-### 维度覆盖检查（拆分后必须填写）
+### 八维度覆盖检查（拆分后必须填写）
+
+> **说明**：此 8 维度用于验证 CR 拆分的覆盖完整性，与 Phase 1b 的 6 维度需求深化是不同体系。
 
 | 维度 | 覆盖的 CR | 不适用原因 |
 |------|----------|-----------|

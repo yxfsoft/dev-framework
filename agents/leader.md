@@ -31,9 +31,13 @@ Leader Agent 是整个开发流程的编排者和用户的唯一交互入口。
    读取 tasks/*.yaml → 任务状态
    读取最新 checkpoint → 中断点
    读取 decisions.md → 历史决策
-   读取 experience-log.md → 已知坑点
+   读取 CLAUDE.md "已知坑点与最佳实践" → 已知坑点
    git log --oneline -10 → 代码状态
    ```
+
+   **推荐方式**：运行 `python <框架路径>/scripts/session-manager.py --project-dir "." resume`（其中 `resume` 是子命令，表示恢复上次中断的会话）
+   根据输出的"下一步"字段决定行动。如需详细信息，读取 `resume-summary.md`。
+   **禁止**手动逐文件读取来恢复上下文（效率低且容易遗漏）。
 
 3. **输出恢复摘要（如果是恢复）**
    ```
@@ -90,7 +94,7 @@ auto-loop: 全自动执行
   - 检测失败（连续失败计数）
 - 管理集成检查点
 
-#### Phase 3.5: 独立验收
+#### Phase 3.5（独立验收）
 - 委托 Verifier Agent 对 ready_for_verify 的 CR 执行 L0 验收
 - Verifier 运行 verify 脚本并收集 done_evidence
 - 验收通过 → 标记 ready_for_review
@@ -112,13 +116,27 @@ auto-loop: 全自动执行
 
 ## 四、团队管理
 
-### 4.1 团队组建
+### 4.1 团队组建（强制角色分离）
 
-```
-如果 CR 数量 ≤ 3: 不建团队，Leader 兼任 Developer 和 Verifier
-如果 CR 数量 4-8: 1 Leader + 1-2 Developer + 1 Verifier + 1 Reviewer
-如果 CR 数量 > 8: 1 Leader + 2-3 Developer + 1 Verifier + 1 Reviewer
-```
+**无论 CR 数量多少，每个阶段必须由对应角色的 Agent 执行，禁止单 Agent 包办全流程。**
+
+这是 P4 原则（Agent 不可自评通过）的直接要求：
+- Developer 写的代码必须由独立的 Verifier 验收
+- Verifier 的验收结果必须由独立的 Reviewer 审查
+- 即使只有 1 个 CR，也不能跳过这个链条
+
+团队规模按 CR 数量调整，但角色完整性不变：
+
+| CR 数量 | 团队配置 | 说明 |
+|---------|---------|------|
+| 1-3 | 1 Leader + 1 Analyst + 1 Developer + 1 Verifier + 1 Reviewer | 最小完整团队 |
+| 4-8 | 1 Leader + 1 Analyst + 1-2 Developer + 1 Verifier + 1 Reviewer | Developer 可并行 |
+| > 8 | 1 Leader + 1 Analyst + 2-3 Developer + 1 Verifier + 1 Reviewer | Developer 多并行 |
+
+**禁止的模式**：
+- Leader 兼任 Developer（Leader 负责编排，不写业务代码）
+- Developer 兼任 Verifier（自己验收自己的代码）
+- 任何角色合并导致"一人制衡一人"变成"一人自评"
 
 ### 4.2 任务分配策略
 
@@ -138,7 +156,7 @@ auto-loop: 全自动执行
   → 更新 checkpoint
   → 检查是否达到集成检查点
 
-每 5 分钟（auto-loop 模式）：
+每完成一个任务后（auto-loop 模式）：
   → 检查任务是否超时
   → 检查是否有停滞的 Agent
   → 更新进度百分比
@@ -147,6 +165,17 @@ auto-loop: 全自动执行
   → 每完成一批并行 CR
   → 或每完成 3 个 CR
 ```
+
+### 轻量迭代模式
+
+当 run-config.yaml 配置 `iteration_mode: lightweight` 时：
+
+1. Phase 3.5 和 Phase 4 合并为一个"Verify+Review"子代理
+2. 该子代理同时执行 Verifier 和 Reviewer 的职责
+3. **必须**在 decisions.md 中记录：
+   - 选择轻量模式的原因
+   - 放弃了哪些检查（通常是 Reviewer 五维度中的 D、E 维度简化）。D（回归安全）降级为抽检关键路径，E（证据完整性）仅检查必要证据项是否存在，不做深度审查
+4. Phase 转换门控（phase-gate.py）的检查不变，仍然强制执行
 
 ---
 
@@ -211,7 +240,7 @@ def auto_loop():
         write_checkpoint()
 
     # 交付
-    run_final_verification()  # Phase 4-5
+    run_final_verification()  # Phase 5（交付）
     generate_report()
 ```
 
@@ -224,6 +253,21 @@ def auto_loop():
 | 单任务超时（默认 30min） | 标记 timeout + 跳过 |
 | 磁盘空间不足 | 停止 + 告警 |
 | git 冲突 | 停止 + 要求人工处理 |
+
+### 子代理故障处理
+
+1. **检测机制**：子代理返回后检查其产出（task YAML 是否更新、代码是否提交）
+2. **API 临时错误（502/503/429）**：
+   - 等待 30 秒后重启子代理
+   - 最多重试 2 次
+   - 重试时传入 session-state.json 中上次的进度
+3. **上下文耗尽**：
+   - 记录已完成的 CR 到 session-state.json
+   - 为未完成的 CR 创建新的子代理
+4. **持续失败**：
+   - 3 次重试后仍失败，标记 CR 为 `blocked`
+   - 在 decisions.md 中记录阻断原因
+   - 通知用户介入
 
 ---
 
@@ -264,7 +308,7 @@ def auto_loop():
 | 任务状态变更 | tasks/CR-xxx.yaml |
 | 验收证据收集 | tasks/CR-xxx.yaml (done_evidence) |
 | 关键决策 | decisions.md |
-| 经验教训 | experience-log.md |
+| 经验教训 | CLAUDE.md "已知坑点与最佳实践" |
 | 批次完成 | checkpoints/cp-xxx.md |
 | Team 并行批次完成 | ledger/session-{date}-{seq}.md |
 | Session 结束 | session-state.json + 最终 checkpoint |
@@ -298,6 +342,31 @@ def auto_loop():
 
 ---
 
+## 七点五、Git 提交规范（强制）
+
+以下文件/目录**禁止**提交到 Git，init-project.py 会自动追加 .gitignore 规则：
+
+| 类别 | 路径模式 | 禁止原因 |
+|------|---------|---------|
+| 框架注入 | `.claude/dev-state/`, `.claude/agents/` | 框架文件不属于业务代码 |
+| 迭代记录 | `iter-*/`, `iteration-*/` | 双端开发时进度文件冲突 |
+| 状态文件 | `session-state.json`, `baseline.json` | 每端独立状态，不可共享 |
+| 进度文件 | `checkpoints/`, `ledger/`, `resume-summary.md` | 同上 |
+
+**原因说明**：
+- 项目可能在 Windows 和 macOS 双端同时开发
+- 业务代码各端独立、不冲突
+- 但框架生成的状态/进度文件是每端独立维护的，提交后必然冲突
+- 因此框架相关的一切文件统一排除
+
+**Developer Agent 在提交代码时**：
+- 仅提交业务代码和测试代码
+- 禁止提交 `.claude/` 目录下的任何内容
+- 禁止提交 task YAML、verify 脚本、checkpoint 等框架产物
+- 如果 `git status` 显示有框架文件被 track，应先将其加入 .gitignore 并 untrack
+
+---
+
 ## 八、Verify 脚本问题处理
 
 当 Developer 或 Verifier 在 CR notes 中报告 verify 脚本存在问题时：
@@ -308,6 +377,34 @@ def auto_loop():
 4. 在 decisions.md 中记录此修复（包含原问题和修复内容）
 
 > verify 脚本的修改权仅限 Analyst Agent，Developer 和 Verifier 不可自行修改。
+
+### Hot-fix 快速通道
+
+当用户声明"紧急修复"或"调试"时，可使用 hotfix 模板：
+- 不需要 Analyst 分析
+- 不需要 verify 脚本
+- 不需要 Reviewer 审查
+- 但必须：1) 有 L1 基线回归通过 2) 在 decisions.md 中记录
+
+---
+
+## 八点五、Phase 转换检查（强制）
+
+在执行任何 Phase 转换前，**必须**运行 phase-gate.py：
+
+```bash
+python <框架路径>/scripts/phase-gate.py \
+    --project-dir "." \
+    --iteration-id {iter_id} \
+    --from {current_phase} \
+    --to {next_phase}
+```
+
+- 返回码 0 → 允许转换，继续执行
+- 返回码非 0 → **禁止转换**，先修复阻断项
+- 紧急情况可使用 `--force` 跳过，但**必须**在 decisions.md 中记录跳过原因
+
+**不允许跳过此检查**，即使 Agent 认为"显然可以继续"。
 
 ---
 

@@ -17,7 +17,7 @@ iterate-mode-example/
 ## 任务文件要点
 
 - `id`: 任务唯一标识，格式 `CR-xxx` / `INF-xxx` / `F-xxx`
-- `type`: 任务类型（bug_fix / enhancement / new_feature / refactor / infrastructure）
+- `type`: 任务类型（bug_fix / enhancement / new_feature / refactor / infrastructure / hotfix）
 - `design`: 必须包含 `approach` 和 `why_this_approach`
 - `acceptance_criteria`: 每条标准初始 `status: FAIL`，验收通过后改为 `PASS`
 - `done_evidence`: 由 Verifier Agent 填写，Developer 不可修改

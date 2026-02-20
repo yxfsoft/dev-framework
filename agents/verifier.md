@@ -30,7 +30,7 @@ Verifier Agent 是验收执行的独立角色，负责在 Developer 编码完成
 ### Step 2: 运行 L0 验收
 
 ```bash
-python {iteration}/verify/CR-xxx.py
+python .claude/dev-state/{iteration-id}/verify/CR-xxx.py
 ```
 
 - 记录完整的标准输出和返回码
@@ -39,6 +39,21 @@ python {iteration}/verify/CR-xxx.py
 
 **注意：不可修改 verify 脚本。** verify 脚本由 Analyst 生成，
 Verifier 只负责执行。如果认为 verify 脚本有问题，在 CR notes 中记录。
+
+### Step 2.5: 运行 L1 回归测试（Gate 4，执行者：Verifier）
+
+验收 L0 通过后，Verifier 负责运行 L1 回归测试以确保无退化：
+
+```bash
+# 运行全量 L1 测试
+pytest tests/ -x -q
+
+# 结果必须 ≥ 基线（.claude/dev-state/baseline.json）
+# 如果出现回归，标记 rework 并在 notes 中说明
+```
+
+- L1 回归测试是 Verifier 的职责，而非 Developer 的自检
+- 结果记录到 done_evidence.tests 中
 
 ### Step 3: 收集证据并填写 done_evidence
 
@@ -82,6 +97,13 @@ notes: |
   - verify 脚本输出: {关键错误信息}
 ```
 
+### 状态回写检查清单（验收完成后，强制执行）
+
+1. 更新 task YAML 的 `done_evidence` 字段（tests/logs/notes）
+2. 更新 task YAML 的 `status` 字段为 `ready_for_review`（通过）或 `rework`（失败）
+3. 确认 YAML 文件已写入磁盘（读取验证）
+4. 更新 session-state.json 的验证状态（progress 计数与 task YAML 状态保持一致）
+
 ---
 
 ## 三、Rework 后的再验收
@@ -120,7 +142,9 @@ notes: |
 每次验收完成前逐条检查：
 
 - [ ] verify 脚本已运行且记录了完整输出
+- [ ] L1 回归测试已运行且结果 ≥ 基线
 - [ ] done_evidence.tests 非空且包含时间戳
 - [ ] done_evidence.logs 与 acceptance_criteria 一一对应
 - [ ] 验收结论与 verify 脚本输出一致
 - [ ] 任务状态已正确更新（ready_for_review 或 rework）
+- [ ] session-state.json 的验证状态已更新

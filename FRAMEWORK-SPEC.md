@@ -1,6 +1,6 @@
 # Dev-Framework 规格书
 
-> 版本: 1.1
+> 版本: v2.6
 > 统一多代理协作开发框架 — 覆盖首次开发与多轮迭代
 
 ---
@@ -97,12 +97,12 @@ Review Agent 可以将任务打回 `rework`。
   已有项目 + 变更需求 → 框架流程 → 增量代码变更
 ```
 
-首次开发等同于 iteration-0（在空项目上的首轮迭代）。
+首次开发等同于 iter-0（在空项目上的首轮迭代）。
 
 **迭代 ID 命名约定**：
-- 首次开发固定使用 `iteration-0`
-- 后续迭代使用 `iter-N` 格式（如 `iter-1`, `iter-2`, `iter-3`），与 CLI 参数 `--iteration-id` 一致
-- 状态文件目录路径：`.claude/dev-state/{iteration-id}/`
+- 统一使用 `iter-N` 格式（N 从 0 开始），如 `iter-0`（首次开发）、`iter-1`、`iter-2`
+- `init-project.py` 自动创建 `iter-0` 目录
+- 状态文件目录路径：`.claude/dev-state/iter-N/`
 
 ### 3.2 Agent 角色
 
@@ -155,7 +155,7 @@ Phase 3: 开发执行
   ├── 并行度 ≤ 3
   └── 每批完成后运行集成检查点
 
-Phase 3.5: 独立验收
+Phase 3.5（独立验收）
   ├── Verifier Agent 对 ready_for_verify 的 CR 执行 L0 验收
   ├── 运行 verify 脚本 + 收集 done_evidence
   ├── 通过 → 标记 ready_for_review
@@ -183,10 +183,10 @@ Phase 5: 交付
 {project}/.claude/dev-state/
 ├── session-state.json              # 当前 session 运行状态
 ├── baseline.json                   # 基线测试结果
-├── experience-log.md               # 经验教训累积
+├── experience-log.md               # v2.6 已废弃，历史数据保留但不再由框架主动更新。新经验记录请使用 CLAUDE.md 的「已知坑点与最佳实践」章节
 ├── run-config.yaml                 # 运行模式配置
 │
-└── {iteration-id}/                 # 每轮迭代独立目录（如 iter-3 或 iteration-0）
+└── {iteration-id}/                 # 每轮迭代独立目录（如 iter-0、iter-1、iter-3）
     ├── manifest.json               # 迭代元信息（阶段/进度/时间戳）
     ├── requirement-raw.md          # 用户原始需求
     ├── requirement-spec.md         # 细化后的需求规格
@@ -203,6 +203,7 @@ Phase 5: 交付
     │   └── session-20260219-01.md
     └── decisions.md                # 关键决策日志
 ```
+<!-- 同步修改点：README.md / USER-GUIDE.md / FRAMEWORK-SPEC.md -->
 
 ### 4.2 Session 生命周期
 
@@ -212,7 +213,7 @@ Phase 5: 交付
 3. 扫描 tasks/*.yaml → 获取任务列表和状态
 4. 读最新 checkpoint → 获取上次中断点
 5. 读 decisions.md → 获取历史决策
-6. 读 experience-log.md → 获取已知坑点
+6. 读 CLAUDE.md "已知坑点与最佳实践" 章节 → 获取已知坑点
 7. git log --oneline -10 → 确认代码状态
 8. 运行基线测试（如配置要求）
 9. 输出恢复摘要，确认后继续
@@ -225,7 +226,7 @@ Phase 5: 交付
 | 任务拆分完成 | tasks/*.yaml |
 | 关键技术决策 | decisions.md |
 | 任务开始/完成 | tasks/CR-xxx.yaml + session-state.json |
-| 发现坑点/经验 | experience-log.md |
+| 发现坑点/经验 | CLAUDE.md "已知坑点与最佳实践" 章节 |
 | 批次完成 | checkpoints/cp-xxx.md |
 
 **结束/中断：**
@@ -266,6 +267,21 @@ Claude Code 的自动上下文压缩通过以下机制保证不影响开发：
 
 mode: "interactive"   # interactive | auto-loop
 
+# v2.6 新增：工具链配置（FIX-01）
+toolchain:
+  test_runner: "auto"    # auto | "uv run pytest" | "poetry run pytest"
+  linter: "auto"         # auto | "uv run ruff check ."
+  formatter: "auto"      # auto | "uv run ruff format --check ."
+  python: "auto"         # auto | "uv run python"
+
+# v2.6 新增：迭代模式（FIX-10）
+iteration_mode: "standard"  # standard | lightweight
+
+# v2.6 新增：Git hooks 配置（FIX-08）
+hooks:
+  commit_message_pattern: "default"  # default | cr-suffix | flexible | custom
+  commit_message_regex: ""
+
 interactive:
   auto_verify: true          # 编码后自动运行 verify
   auto_test: true            # 自动运行测试
@@ -304,6 +320,8 @@ auto_loop:
 ---
 
 ## 六、质量标准
+
+> 详细的 Gate 0-7 定义（触发时机、检查内容、自动化程度）请参见 `workflows/quality-gate.md`。
 
 ### 6.1 三层验证
 
@@ -449,7 +467,7 @@ init-mode 使用，所有特性初始标记 FAIL。
 
 ### 9.3 Session 状态 (session-state.json)
 
-详见 `schemas/session-state.json`。
+详见 `schemas/session-state.json`（格式示例）。
 
 ### 9.4 运行配置 (run-config.yaml)
 
@@ -482,6 +500,59 @@ python dev-framework/scripts/init-iteration.py \
 框架自身的更新不影响已有项目。已有项目中的 Agent 定义是框架的副本，
 可以通过重新运行 init 脚本更新（保留项目特定的定制部分）。
 
+> 完整脚本命令参考请见 [README.md § 快速开始](README.md) 和 [USER-GUIDE.md § 脚本命令详解](USER-GUIDE.md)。
+
+---
+
+## 附录 A：术语表（v2.6 FIX-16 新增）
+
+| 术语 | 定义 | 同义词/易混淆 |
+|------|------|-------------|
+| **CR** | Change Request，变更请求。框架中任务的基本单位 | Task（不推荐，因 Claude Code 的 Task 工具会混淆） |
+| **INF** | Infrastructure，基础设施类任务。无单独模板，使用通用任务格式 | — |
+| **F** | Feature，init-mode 的功能特性 | — |
+| **HF** | Hotfix，紧急修复类任务（v2.6 新增） | — |
+| **Phase** | 开发阶段（0-5），见 §3.3 | Stage（不使用） |
+| **Gate** | 质量门控检查点（0-7），见 quality-gate.md | Checkpoint（不同概念，checkpoint 是进度快照） |
+| **L0** | 验收测试（零 Mock，verify 脚本） | Acceptance test |
+| **L1** | 单元测试（最小 Mock） | Unit test |
+| **L2** | 集成测试（零 Mock，完整链路） | Integration test |
+| **Baseline** | 基线，迭代开始时的测试快照 | — |
+| **Checkpoint** | 检查点，开发过程中的进度快照（checkpoints/cp-xxx.md） | 不等于 Gate |
+| **Ledger** | 台账，Team 并行子任务记录 | Session Ledger |
+| **Iteration** | 一轮迭代（iter-N），包含 Phase 0-5 | Sprint（不使用） |
+| **done_evidence** | 验收证据归档，由 Verifier 填写 | — |
+| **verify 脚本** | 验收脚本（verify/CR-xxx.py），由 Analyst 生成 | L0 脚本 |
+| **rework** | 返工状态，由 Verifier 或 Reviewer 标记 | — |
+| **PASS** | 终态成功（大写），由 Reviewer 标记 | — |
+
+---
+
+## 附录 B：Mock 生命周期管理（v2.6 FIX-22 新增）
+
+### 三项声明
+
+使用 Mock 时必须同时声明：
+```python
+# MOCK-REASON: Claude API 调用需要付费，CI 环境无 API Key
+# MOCK-REAL-TEST: tests/e2e/test_claude_api.py::test_real_api_call
+# MOCK-EXPIRE-WHEN: CI 配置了 CLAUDE_API_KEY 环境变量
+```
+
+### 生命周期
+
+1. **创建**：Developer 在测试中添加 Mock + 三项声明
+2. **审查**：Reviewer 验证声明完整性和 MOCK-REAL-TEST 存在性
+3. **定期审计**：每轮迭代 Phase 0，Analyst 扫描到期条件
+4. **移除**：条件满足时创建 CR 移除 Mock
+
+### permanent Mock
+
+某些 Mock 永远无法移除（如 CI 永远不会有 GPU）：
+```python
+# MOCK-EXPIRE-WHEN: permanent: CI 环境无 GPU 硬件，无法运行 CUDA 测试
+```
+
 ---
 
 ## 十一、架构决策记录
@@ -490,3 +561,11 @@ python dev-framework/scripts/init-iteration.py \
 每条 ADR（Architecture Decision Record）包含：决策、原因、替代方案、后果。
 
 新增或修改设计决策时，必须同步更新 ARCHITECTURE.md。
+
+---
+
+## 相关文档
+
+- [README.md](README.md) — 快速入门与项目概览
+- [ARCHITECTURE.md](ARCHITECTURE.md) — 架构决策记录（ADR）
+- [USER-GUIDE.md](USER-GUIDE.md) — 详细使用指南

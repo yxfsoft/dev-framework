@@ -1,3 +1,7 @@
 # Dev-Framework 依赖
-# 以下脚本需要 PyYAML: session-manager.py, generate-report.py, run-verify.py
+# 以下脚本需要 PyYAML: init-project.py, init-iteration.py, check-quality-gate.py,
+#   phase-gate.py, session-manager.py, generate-report.py, run-verify.py
 PyYAML>=6.0
+# 可选运行时依赖（由工具链自动检测，不强制安装）:
+#   pytest — 测试运行器，quality-gate / run-baseline / run-verify 使用
+#   ruff   — 代码检查器，quality-gate / run-baseline 使用

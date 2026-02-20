@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# NOTE: run-verify.py 使用内置代码生成验收脚本，此模板仅作参考。如需同步修改请同时更新 run-verify.py 的 generate_skeleton 函数。
 """
 {{TASK_ID}} 验收脚本
 需求: {{TASK_TITLE}}
@@ -26,6 +27,15 @@ def verify_{{TASK_ID_LOWER}}_ac2():
 
 # 按需追加更多 verify_{{TASK_ID_LOWER}}_acN 函数
 # 命名规则: verify_{task_id小写}_{ac_id}()
+
+# ============================================================
+# 运行时验证区域（v2.6 FIX-03: Analyst 必须至少实现 1 个运行时断言）
+# ============================================================
+# >>> 以下函数中的占位代码必须被替换为实际验证逻辑 <<<
+# >>> 功能型 CR：至少 1 个运行时断言（import 被测模块 + 调用 + assert）
+# >>> 基础设施型 CR：至少 1 个配置可加载检查或 subprocess.run 调用
+# >>> 测试型 CR：至少运行 pytest 并检查通过数
+# >>> 禁止全部为 "xxx" in source 类字符串检查
 
 
 def collect_evidence(results, task_id):

@@ -1,5 +1,7 @@
 # Dev-Framework — 多代理协作开发框架
 
+> 版本: v2.6 | 更新日期: 2026-02-20
+
 统一的多代理协作开发框架，覆盖首次开发（init-mode）和多轮迭代开发（iterate-mode）。
 
 基于五角色制衡模型（Leader / Analyst / Developer / Verifier / Reviewer），
@@ -30,6 +32,20 @@
 ```bash
 pip install -r dev-framework/requirements.txt
 ```
+
+### 已有项目升级（v2.5 → v2.6）
+
+如果你的项目已使用 v2.5 版本的框架，运行升级脚本迁移到 v2.6：
+
+```bash
+# 先预览变更
+python dev-framework/scripts/upgrade-project.py --project-dir "<项目路径>" --dry-run
+
+# 确认无误后执行升级
+python dev-framework/scripts/upgrade-project.py --project-dir "<项目路径>"
+```
+
+详见 [USER-GUIDE.md § 九、从 v2.5 升级到 v2.6](USER-GUIDE.md#九从-v25-升级到-v26)。
 
 ### 新项目初始化
 
@@ -92,7 +108,7 @@ dev-framework/
 │   │   ├── feature.yaml.tmpl
 │   │   ├── bug-fix.yaml.tmpl
 │   │   ├── enhancement.yaml.tmpl
-│   │   ├── new-feature.yaml.tmpl
+│   │   ├── hotfix.yaml.tmpl
 │   │   └── refactor.yaml.tmpl
 │   └── verify/                 # 验证脚本模板
 │       ├── verify-task.py.tmpl
@@ -103,7 +119,7 @@ dev-framework/
 │   ├── feature-checklist.json  # 特性清单 JSON 格式
 │   ├── session-state.json      # Session 状态格式
 │   ├── baseline.json           # 基线测试结果格式
-│   └── run-config.yaml         # 运行配置格式 + 默认值
+│   └── run-config.yaml         # 运行配置模板 + 默认值（init-project.py 将其复制到项目的 .claude/dev-state/run-config.yaml 作为运行时配置）
 │
 ├── scripts/                    # 自动化工具（跨平台）
 │   ├── init-project.py         # 初始化新项目
@@ -111,9 +127,15 @@ dev-framework/
 │   ├── run-baseline.py         # 运行基线测试
 │   ├── run-verify.py           # 运行验收脚本 / 生成验收骨架
 │   ├── check-quality-gate.py   # 质量门控检查（Gate 0-7）
+│   ├── phase-gate.py           # Phase 转换门控检查
 │   ├── estimate-tasks.py       # 任务拆分规模估算
 │   ├── generate-report.py      # 生成迭代报告
-│   └── session-manager.py      # Session 状态管理
+│   ├── session-manager.py      # Session 状态管理
+│   ├── upgrade-project.py      # 升级已有项目（v2.5 → v2.6）
+│   └── utils.py                # 工具链检测 + 通用辅助函数
+│
+├── docs/                       # 文档
+│   └── audit-report-v26.md
 │
 └── examples/                   # 示例（参考用）
     └── iterate-mode-example/   # 包含完整的 CR 示例
@@ -193,7 +215,7 @@ Reviewer: 代码审查 → L2 集成 → PASS/REWORK
 全自动执行 Phase 0→5，仅在安全阀触发时停止。
 适合大批量任务或夜间运行。
 
-配置: `.claude/dev-state/run-config.yaml`
+配置: `.claude/dev-state/run-config.yaml`（运行时配置，由 `init-project.py` 从 `schemas/run-config.yaml` 模板复制生成）
 
 ---
 
@@ -311,6 +333,19 @@ python dev-framework/scripts/estimate-tasks.py \
     --modules 5 --risk high --complexity moderate --mode iterate
 ```
 
+### 项目升级
+
+```bash
+# 升级已有项目（v2.5 → v2.6）
+python dev-framework/scripts/upgrade-project.py \
+    --project-dir "D:/project" \
+    --dry-run
+
+# 确认无误后正式升级
+python dev-framework/scripts/upgrade-project.py \
+    --project-dir "D:/project"
+```
+
 ---
 
 ## 状态管理
@@ -321,18 +356,20 @@ python dev-framework/scripts/estimate-tasks.py \
 {project}/.claude/dev-state/
 ├── session-state.json          # 当前 session 运行状态
 ├── baseline.json               # 基线测试结果
-├── experience-log.md           # 经验教训累积
+├── experience-log.md           # v2.6 已废弃，历史数据保留但不再由框架主动更新。新经验记录请使用 CLAUDE.md 的「已知坑点与最佳实践」章节
 ├── run-config.yaml             # 运行模式配置
 └── {iteration-id}/             # 每轮迭代独立目录
     ├── manifest.json           # 迭代元信息
     ├── requirement-raw.md      # 用户原始需求
     ├── requirement-spec.md     # 细化后的需求规格
+    ├── impact-analysis.md      # 影响分析（Analyst 生成）
     ├── tasks/                  # 任务 YAML 文件
     ├── verify/                 # 验收脚本（不可被 Developer 修改）
     ├── checkpoints/            # 检查点快照
     ├── ledger/                 # Session Ledger（Team 并行记录）
     └── decisions.md            # 关键决策日志
 ```
+<!-- 同步修改点：README.md / USER-GUIDE.md / FRAMEWORK-SPEC.md -->
 
 ---
 

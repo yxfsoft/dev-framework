@@ -52,6 +52,8 @@ def run_single_verify(
         text=True,
         cwd=project_dir,
         timeout=120,
+        encoding="utf-8",
+        errors="replace",
     )
 
     print(result.stdout)
@@ -102,7 +104,8 @@ def update_task_criteria(
         )
         print(f"  任务状态已更新: {task_id} → {new_status}")
     except ImportError:
-        print(f"  WARN  PyYAML 未安装，无法自动更新任务文件")
+        print(f"  ERROR  PyYAML 未安装，无法自动更新任务文件。运行: pip install PyYAML>=6.0")
+        return
     except Exception as e:
         print(f"  WARN  更新任务文件失败: {e}")
 
@@ -150,6 +153,8 @@ def generate_skeleton(
 
     骨架包含每条 criteria 对应的 verify 函数（含 NotImplementedError 占位）
     和 done_evidence 自动收集逻辑。Analyst 必须检查并补全业务验证逻辑。
+
+    参考模板：templates/verify/verify-task.py.tmpl
     """
     import yaml
 
@@ -170,14 +175,12 @@ def generate_skeleton(
     raw_ac = task.get("acceptance_criteria", [])
     title = task.get("title", "未知任务")
 
-    # 兼容新旧格式：新格式是 dict（按维度分组），旧格式是 list
+    # acceptance_criteria 仅支持 dict 格式（按维度分组）
     if isinstance(raw_ac, dict):
         criteria = []
         for group_name in ("functional", "robustness", "performance",
                            "ux_states", "ux_interaction", "security", "observability"):
             criteria.extend(raw_ac.get(group_name, []))
-    elif isinstance(raw_ac, list):
-        criteria = raw_ac
     else:
         criteria = []
 
@@ -324,6 +327,13 @@ def main() -> None:
 
     args = parser.parse_args()
     project_dir = Path(args.project_dir).resolve()
+    if not project_dir.is_dir():
+        sys.exit(f"ERROR: --project-dir 目录不存在: {project_dir}")
+
+    # SEC01: 路径遍历检测
+    _task_id = args.task_id or args.generate_skeleton
+    if _task_id and (".." in _task_id or "/" in _task_id or "\\" in _task_id):
+        sys.exit("ERROR: task-id 包含非法字符")
 
     if args.generate_skeleton:
         generate_skeleton(project_dir, args.iteration_id, args.generate_skeleton)

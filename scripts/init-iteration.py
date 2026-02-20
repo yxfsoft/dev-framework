@@ -24,6 +24,32 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
+def check_stale_iterations(dev_state_dir: Path):
+    """检测并提示清理失败的旧迭代（FIX-19）。"""
+    if not dev_state_dir.exists():
+        print(f"  [ERROR] dev-state 目录不存在: {dev_state_dir}")
+        return
+    for d in dev_state_dir.iterdir():
+        if not d.is_dir():
+            continue
+        if not (d.name.startswith("iter-") or d.name.startswith("iteration-")):
+            continue
+        manifest = d / "manifest.json"
+        if manifest.exists():
+            try:
+                data = json.loads(manifest.read_text(encoding="utf-8"))
+                if data.get("phase") == "phase_0":
+                    tasks_dir = d / "tasks"
+                    tasks = list(tasks_dir.glob("*.yaml")) if tasks_dir.exists() else []
+                    if not tasks:
+                        print(f"  [WARN] 发现空迭代 {d.name}（phase_0，无任务），建议删除")
+            except Exception:
+                pass
+        # 检测命名不一致（iteration-0 是 init-project 生成的旧命名，保留兼容）
+        if d.name.startswith("iteration-") and not d.name == "iteration-0":
+            print(f"  [WARN] 发现旧命名格式 {d.name}，建议统一为 iter-N 格式")
+
+
 def init_iteration(
     project_dir: Path, requirement: str, iteration_id: str
 ) -> None:
@@ -35,15 +61,23 @@ def init_iteration(
         print(f"错误: {dev_state} 不存在。请先运行 init-project.py 初始化项目。")
         return
 
+    # FIX-19: 检测旧迭代残留
+    print("检查现有迭代状态...")
+    check_stale_iterations(dev_state)
+
     iter_dir = dev_state / iteration_id
 
     if iter_dir.exists():
         print(f"错误: {iter_dir} 已存在。请使用不同的 iteration-id。")
         return
 
+    # FIX-19: 统一命名检查
+    if not iteration_id.startswith("iter-"):
+        print(f"[WARN] 建议使用 iter-N 格式（如 iter-3），当前: {iteration_id}")
+
     print(f"初始化迭代: {iteration_id}")
     print(f"项目: {project_dir}")
-    print(f"需求: {requirement[:100]}...")
+    print(f"需求: {requirement[:100]}{'...' if len(requirement) > 100 else ''}")
     print()
 
     # 1. 创建迭代目录结构
@@ -63,7 +97,9 @@ def init_iteration(
         "last_checkpoint": "",
     }
     manifest_path = iter_dir / "manifest.json"
-    manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False))
+    manifest_path.write_text(
+        json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
     print(f"  生成: manifest.json")
 
     # 3. 写入原始需求
@@ -88,30 +124,32 @@ def init_iteration(
     # 5. 更新 session-state.json
     session_state_path = dev_state / "session-state.json"
     if session_state_path.exists():
-        session_state = json.loads(session_state_path.read_text())
+        session_state = json.loads(session_state_path.read_text(encoding="utf-8"))
     else:
         session_state = {}
 
-    session_state.update(
-        {
-            "session_id": f"ses-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}",
-            "last_updated": datetime.now(timezone.utc).isoformat(),
-            "current_iteration": iteration_id,
-            "current_phase": "phase_0",
-            "current_task": None,
-            "progress": {
-                "total_tasks": 0,
-                "completed": 0,
-                "in_progress": 0,
-                "pending": 0,
-                "rework": 0,
-                "failed": 0,
-            },
-            "consecutive_failures": 0,
-        }
-    )
+    # M52: 合并更新，保留现有字段（如 mode, started_at, agents）
+    now_iso = datetime.now(timezone.utc).isoformat()
+    session_state["session_id"] = f"ses-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
+    session_state["last_updated"] = now_iso
+    session_state.setdefault("started_at", now_iso)
+    session_state.setdefault("mode", "interactive")
+    session_state["current_iteration"] = iteration_id
+    session_state["current_phase"] = "phase_0"
+    session_state["current_task"] = None
+    # 合并更新 progress，保留用户可能自定义的其他字段
+    session_state.setdefault("progress", {})
+    session_state["progress"].update({
+        "total_tasks": 0,
+        "completed": 0,
+        "in_progress": 0,
+        "pending": 0,
+        "rework": 0,
+        "failed": 0,
+    })
+    session_state["consecutive_failures"] = 0
     session_state_path.write_text(
-        json.dumps(session_state, indent=2, ensure_ascii=False)
+        json.dumps(session_state, indent=2, ensure_ascii=False), encoding="utf-8"
     )
     print(f"  更新: session-state.json")
 

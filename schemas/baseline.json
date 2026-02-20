@@ -12,6 +12,7 @@
       "l1_skipped": "L1 跳过数 (int)",
       "l2_passed": "L2 集成测试通过数 (int)",
       "l2_failed": "L2 集成测试失败数 (int)",
+      "l2_skipped": "L2 跳过数 (int)",
       "e2e_passed": "E2E 测试通过数 (int, 可选)",
       "e2e_failed": "E2E 测试失败数 (int, 可选)"
     },
@@ -37,7 +38,8 @@
       "l1_failed": 0,
       "l1_skipped": 3,
       "l2_passed": 102,
-      "l2_failed": 0
+      "l2_failed": 0,
+      "l2_skipped": 0
     },
     "lint_clean": true,
     "pre_existing_failures": []

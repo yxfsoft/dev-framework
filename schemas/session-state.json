@@ -12,11 +12,15 @@
     "current_task": "当前正在执行的任务 ID (string, nullable)",
     "progress": {
       "total_tasks": "总任务数 (int)",
-      "completed": "已完成数 (int)",
+      "completed": "已完成数 (int, 对应 PASS 状态的任务数)",
       "in_progress": "进行中数 (int)",
       "pending": "待做数 (int)",
+      "ready_for_verify": "等待验收数 (int)",
+      "ready_for_review": "等待审查数 (int)",
       "rework": "返工数 (int)",
-      "failed": "失败数 (int)"
+      "failed": "失败数 (int)",
+      "blocked": "外部阻塞数 (int)",
+      "timeout": "执行超时数 (int)"
     },
     "last_checkpoint": "最新检查点文件名 (string)",
     "consecutive_failures": "连续失败计数 (int, auto-loop 用)",
@@ -39,8 +43,12 @@
       "completed": 5,
       "in_progress": 1,
       "pending": 6,
+      "ready_for_verify": 0,
+      "ready_for_review": 0,
       "rework": 0,
-      "failed": 0
+      "failed": 0,
+      "blocked": 0,
+      "timeout": 0
     },
     "last_checkpoint": "cp-003.md",
     "consecutive_failures": 0,

@@ -8,12 +8,18 @@ generate-report.py — 生成迭代报告
         --iteration-id "iter-3"
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+
+# 添加 scripts 目录到 path 以导入 fw_utils
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from fw_utils import detect_toolchain, load_run_config, build_test_cmd
 
 try:
     import yaml
@@ -49,7 +55,7 @@ def generate_report(project_dir: Path, iteration_id: str) -> None:
     tasks = load_tasks(project_dir, iteration_id)
     baseline_path = dev_state / "baseline.json"
     baseline = (
-        json.loads(baseline_path.read_text())
+        json.loads(baseline_path.read_text(encoding="utf-8"))
         if baseline_path.exists()
         else None
     )
@@ -66,17 +72,51 @@ def generate_report(project_dir: Path, iteration_id: str) -> None:
     first_pass_rate = first_pass / total if total > 0 else 0
 
     # git 统计
-    git_diff_ref = f"HEAD~{total}" if total > 0 else "HEAD"
-    git_stat = subprocess.run(
-        ["git", "diff", "--stat", git_diff_ref],
-        capture_output=True, text=True, cwd=project_dir,
-    )
+    git_stat_output = ""
+    if total > 0:
+        # 获取实际提交数，避免 HEAD~N 超出历史范围
+        commit_count_result = subprocess.run(
+            ["git", "rev-list", "--count", "HEAD"],
+            capture_output=True, text=True, cwd=project_dir,
+            encoding="utf-8", errors="replace",
+        )
+        commit_count = 0
+        if commit_count_result.returncode == 0:
+            try:
+                commit_count = int(commit_count_result.stdout.strip())
+            except ValueError:
+                commit_count = 0
+        safe_n = min(total, max(commit_count - 1, 0))
+        if safe_n > 0:
+            git_diff_ref = f"HEAD~{safe_n}"
+        else:
+            # 只有一个或零个提交，使用空树作为对比基准
+            git_diff_ref = "4b825dc642cb6eb9a060e54bf899d15f7acb7299"
+        git_stat = subprocess.run(
+            ["git", "diff", "--stat", git_diff_ref],
+            capture_output=True, text=True, cwd=project_dir,
+            encoding="utf-8", errors="replace",
+        )
+        git_stat_output = git_stat.stdout.strip()
+    else:
+        git_stat_output = "(无任务，跳过 diff)"
 
-    # 当前测试结果
-    test_result = subprocess.run(
-        [sys.executable, "-m", "pytest", "tests/", "-q", "--tb=no"],
-        capture_output=True, text=True, cwd=project_dir, timeout=600,
-    )
+    # 当前测试结果（通过工具链配置检测）
+    tests_dir = project_dir / "tests"
+    if tests_dir.exists():
+        config = load_run_config(project_dir)
+        toolchain = detect_toolchain(project_dir, config)
+        test_cmd = build_test_cmd(toolchain, "tests/", ["-q", "--tb=no"])
+        test_result = subprocess.run(
+            test_cmd,
+            capture_output=True, text=True, cwd=project_dir, timeout=600,
+            encoding="utf-8", errors="replace",
+        )
+    else:
+        class _NoTestResult:
+            stdout = "无测试目录 (tests/ 不存在)"
+            stderr = ""
+        test_result = _NoTestResult()
 
     # 生成报告
     report = f"""# 迭代报告: {iteration_id}
@@ -130,21 +170,35 @@ def generate_report(project_dir: Path, iteration_id: str) -> None:
 ## 代码变更统计
 
 ```
-{git_stat.stdout.strip()[-500:]}
+{git_stat_output[-500:]}
 ```
 
 ## 经验教训
 
 """
 
-    # 读取 experience-log
+    # 读取经验教训（v2.6: 优先从 CLAUDE.md 读取，回退到 experience-log.md）
+    claude_md = project_dir / "CLAUDE.md"
+    dot_claude_md = project_dir / ".claude" / "CLAUDE.md"
     exp_log = dev_state / "experience-log.md"
-    if exp_log.exists():
+
+    exp_found = False
+    for src in [claude_md, dot_claude_md]:
+        if src.exists():
+            content = src.read_text(encoding="utf-8")
+            # 提取该章节（使用 find 替代 index 避免 ValueError）
+            idx = content.find("已知坑点与最佳实践")
+            if idx >= 0:
+                section = content[idx:]
+                lines = section.strip().split("\n")[:20]
+                report += "\n".join(lines)
+                exp_found = True
+                break
+    if not exp_found and exp_log.exists():
         content = exp_log.read_text(encoding="utf-8")
-        # 取最后 20 行
         lines = content.strip().split("\n")[-20:]
         report += "\n".join(lines)
-    else:
+    elif not exp_found:
         report += "(无记录)\n"
 
     # 写入报告
@@ -165,7 +219,11 @@ def main() -> None:
     parser.add_argument("--project-dir", required=True, help="项目目录路径")
     parser.add_argument("--iteration-id", required=True, help="迭代 ID")
     args = parser.parse_args()
-    generate_report(Path(args.project_dir), args.iteration_id)
+    project_dir = Path(args.project_dir).resolve()
+    if not project_dir.is_dir():
+        print(f"ERROR: --project-dir 目录不存在: {project_dir}")
+        sys.exit(1)
+    generate_report(project_dir, args.iteration_id)
 
 
 if __name__ == "__main__":

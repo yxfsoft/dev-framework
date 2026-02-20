@@ -4,6 +4,7 @@ id: "{{TASK_ID}}"
 type: "refactor"
 iteration: "{{ITERATION_ID}}"
 title: "{{TITLE}}"
+priority: "P1"           # P0(阻断) / P1(必须) / P2(可选)
 
 # 重构动机
 motivation: |
@@ -50,6 +51,7 @@ retries: 0
 depends: []
 commits: []
 notes: ""
+decisions_ref: []
 done_evidence:
   tests: []
   logs: []

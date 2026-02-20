@@ -85,7 +85,7 @@ def estimate(
         "lines_adjustment": f"+ {lines_adj} ({lines}, 代码量调整)" if lines_adj > 0 else "无",
         "infra_addition": f"+ {infra} (基础设施 CR)" if infra > 0 else "无",
         "adjusted_total": f"{adjusted:.0f}",
-        "note": "仅供参考，最终由 Analyst 根据七路径审视结果决定",
+        "note": "仅供参考，最终由 Analyst 根据八维度覆盖检查结果决定",
     }
 
 

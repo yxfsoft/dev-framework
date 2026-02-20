@@ -1,0 +1,46 @@
+# Hot-fix 轻量任务模板（v2.6 FIX-18 新增）
+# 用于紧急修复和实机调试，跳过完整 Phase 0-5 流程
+
+id: "{{TASK_ID}}"
+type: "hotfix"
+iteration: "{{ITERATION_ID}}"
+title: "{{TITLE}}"
+priority: "P0"
+
+# 修复描述
+description: |
+  {{DESCRIPTION}}
+
+# 受影响文件
+affected_files: []
+
+# 修复方案
+fix_description: ""
+
+# 验证方式（简单描述如何验证修复，无需 verify 脚本）
+verification: ""
+
+# 验收标准（hotfix 简化版，至少 1 条 functional）
+acceptance_criteria:
+  functional:
+    - id: "{{TASK_ID}}-AC1"
+      desc: "修复后问题不再复现"
+      status: FAIL
+
+# 状态（简化状态机: pending → in_progress → PASS，无 verify/review 阶段）
+# （此为简化流程，完整状态定义见 schemas/task-schema.yaml）
+status: pending
+current_step: null
+owner: ""
+retries: 0
+depends: []
+commits: []
+notes: ""
+
+# Hot-fix 不需要完整的 done_evidence，但必须有基本记录
+done_evidence:
+  tests: []
+  logs: []
+  notes: []
+review_result: null
+decisions_ref: []

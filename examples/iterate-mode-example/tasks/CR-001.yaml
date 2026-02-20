@@ -1,5 +1,6 @@
 id: CR-001
 type: bug_fix
+priority: P1
 iteration: iter-1
 title: 修复搜索 API 超时问题
 owner: dev-agent-1
@@ -86,6 +87,8 @@ review_result:
   verdict: PASS
   notes: "修复方案合理，测试覆盖充分"
   issues: []
+
+decisions_ref: []
 
 notes: |
   已读文件: search_service.py (380行), search_router.py (120行), default.yaml

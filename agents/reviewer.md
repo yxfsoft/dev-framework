@@ -26,7 +26,7 @@ Reviewer Agent 是质量的最后守门人。
 
 2. 读取 impact-analysis.md 中对应的影响范围
 
-### Step 2: 代码审查（4 个维度）
+### Step 2: 代码审查（5 个维度）
 
 #### 维度 A: 需求覆盖
 
@@ -59,7 +59,7 @@ Reviewer Agent 是质量的最后守门人。
 
 #### 维度 D: 回归安全
 
-- 基线测试结果是否 ≥ 基线（baseline.json）？
+- 基线测试结果是否 ≥ 基线（`.claude/dev-state/baseline.json`）？
 - 是否有无关的文件被改动？
 - git diff --stat 的改动范围是否符合 CR 的 affected_files？
 
@@ -77,14 +77,16 @@ Reviewer Agent 是质量的最后守门人。
 ### Step 3: 运行 L2 验证
 
 ```bash
-# 运行该 CR 的 verify 脚本
-python {iteration}/verify/CR-xxx.py
+# 运行该 CR 的 verify 脚本（L0 验收，由 Verifier 已执行，Reviewer 复核）
+python .claude/dev-state/{iteration-id}/verify/CR-xxx.py
 
-# 运行集成测试（如果有）
+# 运行 L2 集成测试
 pytest tests/integration/ -x -q
 
-# 运行全量回归测试
+# 运行全量 L1 回归测试
 pytest tests/ -x -q
+
+# 注：实际测试命令以 .claude/dev-state/run-config.yaml 中的 toolchain 配置为准
 ```
 
 ### Step 4: 裁决
@@ -130,6 +132,13 @@ review_result:
       suggestion: "新增 test_cache_invalidation_on_new_data"
 ```
 
+### 状态回写检查清单（审查完成后，强制执行）
+
+1. 更新 task YAML 的 `review_result` 字段（reviewer/reviewed_at/verdict/notes/issues）
+2. 更新 task YAML 的 `status` 字段为 `PASS` 或 `rework`
+3. 确认 YAML 文件已写入磁盘（读取验证）
+4. 更新 session-state.json 的 progress 计数
+
 ---
 
 ## 三、审查清单
@@ -143,7 +152,7 @@ review_result:
 - [ ] 资源释放完整（context manager / finally / 显式 close）
 - [ ] 无硬编码参数/路径/URL
 - [ ] 无未使用的 import 或变量
-- [ ] 函数/方法长度合理（不超过 50 行）
+- [ ] 函数/方法长度合理（不超过 50 行，建议标准，非硬性要求）
 - [ ] 命名清晰准确
 
 ### 测试层面
@@ -152,6 +161,8 @@ review_result:
 - [ ] 测试覆盖边界条件
 - [ ] 断言具体值（非 `assert True`）
 - [ ] Mock 使用合规（仅白名单场景 + 声明理由）
+- [ ] Mock 声明完整（MOCK-REASON + MOCK-REAL-TEST + MOCK-EXPIRE-WHEN）
+- [ ] MOCK-REAL-TEST 指向的测试文件存在
 - [ ] 测试函数名描述测试意图
 
 ### 需求层面
@@ -165,7 +176,7 @@ review_result:
 - [ ] done_evidence 内容与 acceptance_criteria 对应
 
 ### 回归层面
-- [ ] 测试结果 ≥ baseline.json
+- [ ] 测试结果 ≥ `.claude/dev-state/baseline.json`
 - [ ] git diff 范围符合 affected_files
 - [ ] 无无关文件改动
 

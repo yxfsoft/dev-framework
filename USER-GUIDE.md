@@ -1,5 +1,7 @@
 # Dev-Framework 使用指导手册
 
+> 版本: v2.6 | 更新日期: 2026-02-20
+
 > **路径约定**：本文档中的 `dev-framework/scripts/` 指框架仓库的 scripts 目录。
 > 如果框架不在项目子目录下，请替换为框架的实际安装路径（如 `D:/tools/dev-framework/scripts/`）。
 
@@ -66,13 +68,13 @@ python dev-framework/scripts/init-project.py \
 ```
 D:/my-new-app/
 ├── .claude/
-│   ├── agents/           ← 5 个角色协议
+│   ├── agents/           ← 5 个角色协议（从框架 agents/ 目录复制）
 │   ├── dev-state/
 │   │   ├── session-state.json   ← current_phase: "phase_0"
 │   │   ├── baseline.json        ← 空基线（L1=0, L2=0）
 │   │   ├── run-config.yaml      ← 运行模式配置
-│   │   ├── experience-log.md
-│   │   └── iteration-0/         ← 首次开发 = 第 0 轮迭代
+│   │   ├── experience-log.md    # v2.6 已废弃，历史数据保留但不再由框架主动更新。新经验记录请使用 CLAUDE.md 的「已知坑点与最佳实践」章节
+│   │   └── iter-0/              ← 首次开发 = 第 0 轮迭代
 │   │       ├── manifest.json    ← mode: "init"
 │   │       ├── requirement-raw.md
 │   │       ├── tasks/
@@ -86,6 +88,7 @@ D:/my-new-app/
 ├── tests/integration/
 └── docs/
 ```
+<!-- 同步修改点：README.md / USER-GUIDE.md / FRAMEWORK-SPEC.md -->
 
 #### Step 3：填写 CLAUDE.md
 
@@ -116,7 +119,7 @@ Phase 0  环境初始化 → 项目骨架 + 基础设施
 Phase 1  读需求 → 成熟度评估 → 交互确认 → 需求规格书
 Phase 2  架构设计 → 基础设施拆分 + 垂直切片拆分 → verify 脚本
 Phase 3  编码（基础设施批次 → 切片批次）
-Phase 3.5 Verifier 独立验收
+Phase 3.5（独立验收）Verifier 验收
 Phase 4  Reviewer 代码审查
 Phase 5  全量测试 → 迭代报告 → git push
 ```
@@ -353,7 +356,7 @@ python dev-framework/scripts/init-project.py \
 ```bash
 python dev-framework/scripts/run-baseline.py \
     --project-dir "D:/legacy-crm" \
-    --iteration-id "iteration-0"
+    --iteration-id "iter-0"
 ```
 
 记录当前项目的测试状态。如果项目本来就有失败的测试，会被记录为"预存失败"，后续不算回归。
@@ -600,7 +603,7 @@ python dev-framework/scripts/session-manager.py \
     --project-dir "D:/my-project" resume
 ```
 
-输出完整恢复摘要（任务状态、检查点、决策、经验、基线），同时写入 `resume-summary.md`。
+输出完整恢复摘要（任务状态、检查点、决策、经验、基线），同时写入 `.claude/dev-state/{iteration-id}/resume-summary.md`。
 
 告诉 Claude：
 
@@ -686,7 +689,7 @@ python dev-framework/scripts/init-project.py \
 # 3. 记录基线
 python dev-framework/scripts/run-baseline.py \
     --project-dir "D:/crm-system" \
-    --iteration-id "iteration-0"
+    --iteration-id "iter-0"
 # 输出: L1: 238 passed, 3 failed (预存), L2: 15 passed, Lint: 有问题
 ```
 
@@ -714,7 +717,7 @@ Phase 2  拆分为 1 个 CR:
 Phase 3  Developer 修复 + L1 测试
          → ready_for_verify
 
-Phase 3.5 Verifier 运行 verify 脚本 → PASS
+Phase 3.5（独立验收）Verifier 运行 verify 脚本 → PASS
            → ready_for_review
 
 Phase 4  Reviewer 审查 → PASS
@@ -786,10 +789,172 @@ L1: 267 passed (+29 new)
 
 ---
 
-## 九、FAQ
+## 九、从 v2.5 升级到 v2.6
+
+### 适用对象
+
+已使用 dev-framework v2.5 初始化的存量项目。新项目直接使用 `init-project.py` 即可，无需升级。
+
+### 前置条件
+
+| 条件 | 说明 |
+|------|------|
+| 项目已初始化 | `.claude/dev-state/` 目录存在 |
+| Python 3.10+ | 升级脚本运行环境 |
+| PyYAML >= 6.0 | `pip install PyYAML>=6.0` |
+| 工作区干净 | 建议先 `git commit` 所有业务代码变更 |
+
+### v2.6 主要变化
+
+**自动处理的破坏性变更（由升级脚本完成）：**
+- `iteration-0` 目录自动重命名为 `iter-0`（所有 iteration-N 统一为 iter-N）
+- `experience-log.md` 内容自动迁移到 CLAUDE.md「已知坑点与最佳实践」章节
+- 任务 YAML 的 `acceptance_criteria` 自动从 list 转为 dict 格式
+- 缺失的 `priority` 字段自动补充默认值 P1
+- `review_result.issues` 自动转为结构化格式 `{severity, desc, suggestion}`
+- Git hooks 自动重新生成（支持 Windows 兼容的 sh+python polyglot）
+- `session-state.json` 自动补齐 4 个新增 progress 字段
+- `baseline.json` 自动补齐 `l2_skipped` 字段
+- `run-config.yaml` 自动补齐 `toolchain`、`iteration_mode`、`hooks` 配置块
+- 5 个 Agent 协议文件自动更新到 v2.6 版本
+
+**需手动确认的变更：**
+- Mock 三项声明：如果项目测试使用了 Mock，需补充 `MOCK-REAL-TEST` 和 `MOCK-EXPIRE-WHEN` 声明
+- CLAUDE.md 项目特定内容：确认项目概述、安全策略等自定义章节未受影响
+
+**新增能力（无需迁移）：**
+- `phase-gate.py` Phase 转换门控检查
+- `hotfix` 紧急修复任务类型
+- 工具链自动检测（toolchain auto-detect）
+- commit-msg hook 支持 4 种模式
+
+### 自动升级步骤
+
+#### Step 1：预览变更（dry-run）
+
+```bash
+python <框架路径>/scripts/upgrade-project.py \
+    --project-dir "<项目路径>" \
+    --dry-run
+```
+
+查看将执行的所有变更，确认无误后执行 Step 2。
+
+#### Step 2：执行正式升级
+
+```bash
+python <框架路径>/scripts/upgrade-project.py \
+    --project-dir "<项目路径>"
+```
+
+脚本自动执行：
+1. 备份所有将被修改的文件到 `.claude/dev-state/.upgrade-backup-{timestamp}/`
+2. 按顺序执行 16 步迁移
+3. 写入版本标记 `.claude/dev-state/.framework-version`
+4. 输出升级报告
+
+#### Step 3：查看升级报告
+
+关注升级报告中的状态标记：
+- `[APPLIED]` — 已成功执行
+- `[SKIPPED]` — 已是目标状态，无需处理
+- `[ERROR]` — 需要手动处理
+
+### 手动确认步骤
+
+升级脚本完成后，执行以下检查：
+
+**1. CLAUDE.md 检查**
+
+打开 `.claude/CLAUDE.md`（或项目根的 `CLAUDE.md`），确认：
+- 项目概述、关键目录、安全策略等自定义内容完好
+- 「已知坑点与最佳实践」章节中的经验记录已从 experience-log.md 迁移
+
+**2. run-config.yaml 检查**
+
+打开 `.claude/dev-state/run-config.yaml`，确认：
+- `mode`、`auto_loop`、`interactive` 等已有配置未被覆盖
+- 新增的 `toolchain` 默认值 `"auto"` 适合项目（如使用 uv/poetry 可手动指定）
+
+**3. Mock 三项声明（如适用）**
+
+如果项目测试代码使用了 Mock，检查每个 Mock 是否包含：
+```python
+# MOCK-REASON: 外部支付 API 不可用
+# MOCK-REAL-TEST: tests/integration/test_payment_real.py
+# MOCK-EXPIRE-WHEN: 支付沙箱环境就绪
+```
+
+### 验证方法
+
+```bash
+# 1. 确认版本标记
+cat .claude/dev-state/.framework-version
+# 应输出: 2.6
+
+# 2. 环境就绪检查（Gate 0）
+python <框架路径>/scripts/check-quality-gate.py \
+    --project-dir "<项目路径>" --gate gate_0
+
+# 3. 查看 session 状态
+python <框架路径>/scripts/session-manager.py \
+    --project-dir "<项目路径>" status
+
+# 4. 任务格式检查（Gate 2，需有已存在的任务）
+python <框架路径>/scripts/check-quality-gate.py \
+    --project-dir "<项目路径>" --gate gate_2
+```
+
+### 回滚方法
+
+#### 方法 A：使用脚本备份回滚
+
+升级脚本会在 `.claude/dev-state/.upgrade-backup-{timestamp}/` 创建完整备份：
+
+```bash
+# 查看备份内容
+ls .claude/dev-state/.upgrade-backup-*/
+
+# 参考 manifest.txt 了解每个文件的原始路径
+cat .claude/dev-state/.upgrade-backup-*/manifest.txt
+
+# 手动将备份文件逐一复制回原位
+```
+
+#### 方法 B：使用 Git 回滚
+
+如果 `.claude/` 目录已被 Git 跟踪，且升级前已 commit：
+
+```bash
+git checkout -- .claude/
+git checkout -- .git/hooks/
+```
+
+> 注意：如果 `.claude/` 在 .gitignore 中（框架默认行为），Git 回滚不适用，请使用方法 A。
+
+### 升级 FAQ
+
+**Q: 升级会影响正在进行的迭代吗？**
+A: 不会。升级脚本只修改框架文件和数据格式，不改变任务状态和业务逻辑。升级后可继续当前迭代。
+
+**Q: 可以跳过某些迁移步骤吗？**
+A: 不建议。16 步迁移有依赖关系（如目录重命名必须先于任务 YAML 更新）。建议完整运行。
+
+**Q: 升级脚本跑了两次会怎样？**
+A: 安全。脚本设计为幂等，重复运行只会跳过已完成的步骤（标记为 SKIPPED）。
+
+**Q: 多个项目可以用同一个框架目录升级吗？**
+A: 可以。对每个项目分别运行 `upgrade-project.py --project-dir <项目路径>`。
+
+**Q: 升级后旧版本的框架脚本还能用吗？**
+A: 不建议混用。升级后请统一使用 v2.6 的框架脚本目录。
+
+---
+
+## 十、FAQ
 
 **Q: iteration-id 怎么取名？**
-必须符合格式 `iter-N` 或 `iteration-N`（N 为数字），如 `iter-1`、`iter-2`、`iteration-0`。首次开发固定使用 `iteration-0`，后续迭代推荐 `iter-N`。同一项目内不可重复。
+统一使用 `iter-N` 格式（N 为数字，从 0 开始），如 `iter-0`（首次开发）、`iter-1`、`iter-2`。`init-project.py` 自动创建 `iter-0` 目录。同一项目内不可重复。
 
 **Q: 一轮迭代可以包含多个需求吗？**
 可以。`--requirement` 里写多条就行，用分号或换行分隔。Analyst 会拆成多个 CR。
@@ -798,7 +963,8 @@ L1: 267 passed (+29 new)
 告诉 Claude 新增需求，它会调用 Analyst 追加 CR 到当前迭代的 tasks/ 目录。
 
 **Q: 可以跳过 Verifier 直接让 Reviewer 审查吗？**
-CR ≤ 3 时，Leader 会兼任 Developer 和 Verifier，流程自动简化。不需要你手动跳。
+不可以。v2.6 起无论 CR 数量多少，每个阶段必须由对应角色的 Agent 执行。
+这是 P4 原则（不可自评通过）的强制要求。即使只有 1 个 CR 也必须建立完整的 5 角色团队。
 
 **Q: run-config.yaml 可以在迭代中途改吗？**
 可以。比如做到一半觉得 Interactive 太频繁，改成 Auto Loop 继续。
@@ -809,3 +975,11 @@ CR ≤ 3 时，Leader 会兼任 Developer 和 Verifier，流程自动简化。�
 python dev-framework/scripts/init-project.py --help
 python dev-framework/scripts/check-quality-gate.py --help
 ```
+
+---
+
+## 相关文档
+
+- [README.md](README.md) — 快速入门与项目概览
+- [FRAMEWORK-SPEC.md](FRAMEWORK-SPEC.md) — 框架核心规范
+- [ARCHITECTURE.md](ARCHITECTURE.md) — 架构决策记录（ADR）

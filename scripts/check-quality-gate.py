@@ -31,26 +31,25 @@ check-quality-gate.py — 运行质量门控检查
     gate_7: 最终验收
 """
 
+from __future__ import annotations
+
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
 from pathlib import Path
 
+# 目录遍历时需要跳过的常见非项目目录
+_SKIP_DIRS = {".git", "__pycache__", "node_modules", ".venv", "venv", ".tox", ".mypy_cache", ".pytest_cache", "dist", "build"}
 
-def load_baseline(project_dir: Path) -> "dict | None":
-    """加载基线"""
-    baseline_path = project_dir / ".claude" / "dev-state" / "baseline.json"
-    if not baseline_path.exists():
-        return None
-    return json.loads(baseline_path.read_text())
-
-
-def parse_pytest_passed(output: str) -> int:
-    """从 pytest 输出中解析 passed 数量"""
-    match = re.search(r"(\d+) passed", output)
-    return int(match.group(1)) if match else 0
+# 添加 scripts 目录到 path 以导入 fw_utils
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from fw_utils import (
+    load_baseline, parse_pytest_passed, detect_toolchain,
+    load_run_config, build_test_cmd, build_lint_cmd,
+)
 
 
 def gate_0_environment(project_dir: Path, **kwargs) -> bool:
@@ -58,10 +57,14 @@ def gate_0_environment(project_dir: Path, **kwargs) -> bool:
     print("\n[Gate 0] 环境就绪检查")
     checks = []
 
+    config = load_run_config(project_dir)
+    toolchain = detect_toolchain(project_dir, config)
+
     # git status 干净
     result = subprocess.run(
         ["git", "status", "--porcelain"],
         capture_output=True, text=True, cwd=project_dir,
+        encoding="utf-8", errors="replace",
     )
     clean = result.stdout.strip() == ""
     checks.append(("git 工作区干净", clean))
@@ -70,20 +73,22 @@ def gate_0_environment(project_dir: Path, **kwargs) -> bool:
     # Python 可用
     result = subprocess.run(
         [sys.executable, "--version"],
-        capture_output=True, text=True,
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
     )
     py_ok = result.returncode == 0
     checks.append(("Python 可用", py_ok))
     print(f"  {'PASS' if py_ok else 'FAIL'}  Python: {result.stdout.strip()}")
 
-    # pytest 可用
+    # pytest 可用（通过工具链检测）
+    import shlex
+    test_cmd = shlex.split(toolchain["test_runner"])
     result = subprocess.run(
-        [sys.executable, "-m", "pytest", "--version"],
-        capture_output=True, text=True,
+        test_cmd + ["--version"],
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
     )
     pytest_ok = result.returncode == 0
     checks.append(("pytest 可用", pytest_ok))
-    print(f"  {'PASS' if pytest_ok else 'FAIL'}  pytest")
+    print(f"  {'PASS' if pytest_ok else 'FAIL'}  pytest (via {toolchain['test_runner']})")
 
     all_pass = all(c[1] for c in checks)
     print(f"\n  Gate 0: {'PASS' if all_pass else 'FAIL'}")
@@ -99,7 +104,7 @@ def gate_1_requirement(project_dir: Path, **kwargs) -> bool:
         # 尝试从 session-state.json 读取
         state_path = project_dir / ".claude" / "dev-state" / "session-state.json"
         if state_path.exists():
-            state = json.loads(state_path.read_text())
+            state = json.loads(state_path.read_text(encoding="utf-8"))
             iteration_id = state.get("current_iteration")
 
     if not iteration_id:
@@ -129,7 +134,7 @@ def gate_2_task_plan(project_dir: Path, **kwargs) -> bool:
     if not iteration_id:
         state_path = project_dir / ".claude" / "dev-state" / "session-state.json"
         if state_path.exists():
-            state = json.loads(state_path.read_text())
+            state = json.loads(state_path.read_text(encoding="utf-8"))
             iteration_id = state.get("current_iteration")
 
     if not iteration_id:
@@ -166,22 +171,24 @@ def gate_2_task_plan(project_dir: Path, **kwargs) -> bool:
                 continue
             tid = task.get("id", tf.stem)
 
+            # hotfix 类型走简化流程，跳过结构化校验
+            task_type = task.get("type", "")
+            if task_type == "hotfix":
+                continue
+
             # affected_files ≤ 5
             af = task.get("affected_files", [])
             if len(af) > 5:
                 errors.append(f"{tid}: affected_files={len(af)} > 5")
 
-            # acceptance_criteria 非空（兼容新旧格式）
+            # acceptance_criteria 非空（仅支持 dict 格式，按维度分组）
             ac = task.get("acceptance_criteria")
             if isinstance(ac, dict):
                 func_ac = ac.get("functional", [])
                 if len(func_ac) < 1:
                     errors.append(f"{tid}: acceptance_criteria.functional 为空")
-            elif isinstance(ac, list):
-                if len(ac) < 1:
-                    errors.append(f"{tid}: acceptance_criteria 为空")
             else:
-                errors.append(f"{tid}: acceptance_criteria 缺失")
+                errors.append(f"{tid}: acceptance_criteria 缺失或格式不正确（需要 dict）")
 
             # design.why_this_approach 非空
             design = task.get("design", {})
@@ -227,6 +234,7 @@ def gate_3_l0_verify(project_dir: Path, **kwargs) -> bool:
             "--task-id", task_id,
         ],
         capture_output=True, text=True, cwd=project_dir, timeout=120,
+        encoding="utf-8", errors="replace",
     )
 
     print(result.stdout)
@@ -241,12 +249,22 @@ def gate_3_l0_verify(project_dir: Path, **kwargs) -> bool:
 def gate_4_regression(project_dir: Path, **kwargs) -> bool:
     """Gate 4: L1 回归检查"""
     print("\n[Gate 4] L1 回归检查")
+    passed = _run_l1_regression(project_dir)
+    print(f"\n  Gate 4: {'PASS' if passed else 'FAIL'}")
+    return passed
 
+
+def _run_l1_regression(project_dir: Path) -> bool:
+    """运行 L1 单元测试并与基线对比（公共函数，供 gate_4/gate_5/gate_7 复用）。"""
     baseline = load_baseline(project_dir)
+    config = load_run_config(project_dir)
+    toolchain = detect_toolchain(project_dir, config)
 
+    test_cmd = build_test_cmd(toolchain, "tests/unit/", ["-q", "--tb=no"])
     result = subprocess.run(
-        [sys.executable, "-m", "pytest", "tests/unit/", "-q", "--tb=no"],
+        test_cmd,
         capture_output=True, text=True, cwd=project_dir, timeout=600,
+        encoding="utf-8", errors="replace",
     )
 
     output = result.stdout + result.stderr
@@ -256,7 +274,6 @@ def gate_4_regression(project_dir: Path, **kwargs) -> bool:
         print("  FAIL  L1 测试有失败")
         return False
 
-    # 解析实际 passed 数与基线比较
     current_passed = parse_pytest_passed(output)
 
     if baseline:
@@ -273,22 +290,18 @@ def gate_4_regression(project_dir: Path, **kwargs) -> bool:
     return True
 
 
-def gate_5_integration(project_dir: Path, **kwargs) -> bool:
-    """Gate 5: 集成检查点"""
-    print("\n[Gate 5] 集成检查点")
-
-    # L1
-    l1_ok = gate_4_regression(project_dir)
-    if not l1_ok:
-        return False
-
-    # L2
+def _run_l2_integration(project_dir: Path) -> bool:
+    """运行 L2 集成测试（公共函数，供 gate_5/gate_7 复用）。"""
     print("\n  L2 集成测试...")
+    config = load_run_config(project_dir)
+    toolchain = detect_toolchain(project_dir, config)
     integration_dir = project_dir / "tests" / "integration"
     if integration_dir.exists():
+        l2_cmd = build_test_cmd(toolchain, "tests/integration/", ["-q", "--tb=no"])
         result = subprocess.run(
-            [sys.executable, "-m", "pytest", "tests/integration/", "-q", "--tb=no"],
+            l2_cmd,
             capture_output=True, text=True, cwd=project_dir, timeout=600,
+            encoding="utf-8", errors="replace",
         )
         if result.returncode != 0:
             print("  FAIL  L2 集成测试有失败")
@@ -296,22 +309,42 @@ def gate_5_integration(project_dir: Path, **kwargs) -> bool:
         print("  PASS  L2 集成测试通过")
     else:
         print("  SKIP  无 L2 测试目录")
+    return True
 
-    # Mock 合规
-    mock_ok = check_mock_compliance(project_dir)
-    if not mock_ok:
-        return False
 
-    # Lint
+def _run_lint(project_dir: Path) -> bool:
+    """运行 Lint 检查（公共函数，供 gate_5/gate_7 复用）。"""
     print("\n  Lint 检查...")
-    result = subprocess.run(
-        [sys.executable, "-m", "ruff", "check", "."],
-        capture_output=True, text=True, cwd=project_dir,
-    )
-    if result.returncode != 0:
-        print("  FAIL  Lint 有问题")
+    config = load_run_config(project_dir)
+    toolchain = detect_toolchain(project_dir, config)
+    lint_cmd = build_lint_cmd(toolchain)
+    try:
+        result = subprocess.run(
+            lint_cmd,
+            capture_output=True, text=True, cwd=project_dir,
+            encoding="utf-8", errors="replace",
+        )
+        if result.returncode != 0:
+            print("  FAIL  Lint 有问题")
+            return False
+        print("  PASS  Lint 通过")
+    except FileNotFoundError:
+        print("  SKIP  Lint 工具未安装")
+    return True
+
+
+def gate_5_integration(project_dir: Path, **kwargs) -> bool:
+    """Gate 5: 集成检查点"""
+    print("\n[Gate 5] 集成检查点")
+
+    if not _run_l1_regression(project_dir):
         return False
-    print("  PASS  Lint 通过")
+    if not _run_l2_integration(project_dir):
+        return False
+    if not check_mock_compliance(project_dir):
+        return False
+    if not _run_lint(project_dir):
+        return False
 
     print(f"\n  Gate 5: PASS")
     return True
@@ -326,7 +359,7 @@ def gate_6_code_review(project_dir: Path, **kwargs) -> bool:
     if not iteration_id:
         state_path = project_dir / ".claude" / "dev-state" / "session-state.json"
         if state_path.exists():
-            state = json.loads(state_path.read_text())
+            state = json.loads(state_path.read_text(encoding="utf-8"))
             iteration_id = state.get("current_iteration")
 
     if not iteration_id:
@@ -389,10 +422,18 @@ def gate_6_code_review(project_dir: Path, **kwargs) -> bool:
 
 
 def check_mock_compliance(project_dir: Path) -> bool:
-    """扫描测试文件中的 Mock 使用，要求非白名单 Mock 必须声明 # MOCK-REASON:"""
+    """扫描测试文件中的 Mock 使用，检查三项声明完整性（v2.6 FIX-22 增强）。
+
+    v2.6 要求每个 Mock 必须同时包含：
+    1. # MOCK-REASON: — Mock 存在的原因
+    2. # MOCK-REAL-TEST: — 对应的真实测试路径（必须存在）
+    3. # MOCK-EXPIRE-WHEN: — Mock 的移除条件
+    """
     print("\n  Mock 合规检查...")
     mock_pattern = re.compile(r"\b(mock|Mock|MagicMock|patch|mocker)\b")
-    reason_pattern = re.compile(r"#\s*MOCK-REASON:\s*.+")
+    reason_pattern = re.compile(r"#\s*MOCK-REASON:")
+    real_test_pattern = re.compile(r"#\s*MOCK-REAL-TEST:\s*(.+)")
+    expire_pattern = re.compile(r"#\s*MOCK-EXPIRE-WHEN:")
     violations: list[str] = []
 
     tests_dir = project_dir / "tests"
@@ -405,17 +446,38 @@ def check_mock_compliance(project_dir: Path) -> bool:
             content = py_file.read_text(encoding="utf-8", errors="ignore")
         except OSError:
             continue
-        if mock_pattern.search(content) and not reason_pattern.search(content):
-            violations.append(str(py_file.relative_to(project_dir)))
+        if not mock_pattern.search(content):
+            continue
+
+        rel_path = str(py_file.relative_to(project_dir))
+
+        # 检查 1：必须有 MOCK-REASON
+        if not reason_pattern.search(content):
+            violations.append(f"{rel_path}: 使用了 Mock 但缺少 # MOCK-REASON:")
+
+        # 检查 2：必须有 MOCK-REAL-TEST 且路径有效
+        real_test_match = real_test_pattern.search(content)
+        if not real_test_match:
+            violations.append(f"{rel_path}: 缺少 # MOCK-REAL-TEST: 声明")
+        else:
+            real_test_path = real_test_match.group(1).strip().split("::")[0]
+            if not (project_dir / real_test_path).exists():
+                violations.append(
+                    f"{rel_path}: MOCK-REAL-TEST 指向 {real_test_path}，但该文件不存在"
+                )
+
+        # 检查 3：必须有 MOCK-EXPIRE-WHEN
+        if not expire_pattern.search(content):
+            violations.append(f"{rel_path}: 缺少 # MOCK-EXPIRE-WHEN: 声明")
 
     if violations:
-        print(f"  FAIL  {len(violations)} 个测试文件使用 Mock 但未声明 # MOCK-REASON:")
-        for v in violations[:5]:
+        print(f"  FAIL  {len(violations)} 个 Mock 合规问题：")
+        for v in violations[:10]:
             print(f"        {v}")
-        if len(violations) > 5:
-            print(f"        ... 还有 {len(violations) - 5} 个")
+        if len(violations) > 10:
+            print(f"        ... 还有 {len(violations) - 10} 个")
         return False
-    print("  PASS  Mock 使用合规")
+    print("  PASS  Mock 使用合规（声明完整 + 真实测试存在）")
     return True
 
 
@@ -423,27 +485,34 @@ def gate_7_final(project_dir: Path, **kwargs) -> bool:
     """Gate 7: 最终验收"""
     print("\n[Gate 7] 最终验收")
 
-    # 运行 Gate 5 的所有检查
-    gate5_ok = gate_5_integration(project_dir)
-    if not gate5_ok:
+    # 运行与 Gate 5 相同的检查（直接调用公共函数，避免嵌套调用导致重复执行）
+    if not _run_l1_regression(project_dir):
+        return False
+    if not _run_l2_integration(project_dir):
+        return False
+    if not check_mock_compliance(project_dir):
+        return False
+    if not _run_lint(project_dir):
         return False
 
-    # 检查空实现（跨平台兼容：使用 Python 原生实现替代 grep）
+    # 检查空实现（跨平台兼容：使用 os.walk 替代 rglob，提前剪枝排除目录）
     print("\n  空实现检查...")
     not_impl_found = []
-    for py_file in project_dir.rglob("*.py"):
-        # 跳过虚拟环境、缓存、隐藏目录
-        parts = py_file.parts
-        if any(p.startswith(".") or p in ("__pycache__", "node_modules", ".venv", "venv") for p in parts):
-            continue
-        try:
-            with open(py_file, encoding="utf-8", errors="ignore") as f:
-                for i, line in enumerate(f, 1):
-                    if "NotImplementedError" in line:
-                        rel_path = py_file.relative_to(project_dir)
-                        not_impl_found.append(f"{rel_path}:{i}: {line.strip()}")
-        except OSError:
-            continue
+    for root, dirs, files in os.walk(project_dir):
+        # 提前剪枝：移除需要跳过的目录，避免遍历
+        dirs[:] = [d for d in dirs if d not in _SKIP_DIRS and not d.startswith(".")]
+        for fname in files:
+            if not fname.endswith(".py"):
+                continue
+            py_file = Path(root) / fname
+            try:
+                with open(py_file, encoding="utf-8", errors="ignore") as f:
+                    for i, line in enumerate(f, 1):
+                        if "NotImplementedError" in line:
+                            rel_path = py_file.relative_to(project_dir)
+                            not_impl_found.append(f"{rel_path}:{i}: {line.strip()}")
+            except OSError:
+                continue
 
     if not_impl_found:
         print(f"  FAIL  发现 {len(not_impl_found)} 处 NotImplementedError（禁止空实现）")
@@ -474,6 +543,9 @@ def main() -> None:
 
     args = parser.parse_args()
     project_dir = Path(args.project_dir).resolve()
+    if not project_dir.is_dir():
+        print(f"ERROR: --project-dir 目录不存在: {project_dir}")
+        sys.exit(1)
 
     extra = {
         "iteration_id": args.iteration_id,

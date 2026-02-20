@@ -13,30 +13,14 @@ run-baseline.py — 运行基线测试并记录结果
 
 import argparse
 import json
-import re
 import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-
-def parse_pytest_output(output: str) -> dict:
-    """解析 pytest 输出，提取 passed/failed/skipped 数量"""
-    result = {"passed": 0, "failed": 0, "skipped": 0}
-
-    # 匹配 pytest 汇总行: "X passed, Y failed, Z skipped"
-    patterns = {
-        "passed": r"(\d+) passed",
-        "failed": r"(\d+) failed",
-        "skipped": r"(\d+) skipped",
-    }
-
-    for key, pattern in patterns.items():
-        match = re.search(pattern, output)
-        if match:
-            result[key] = int(match.group(1))
-
-    return result
+# 添加 scripts 目录到 path 以导入 fw_utils
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from fw_utils import parse_pytest_output, detect_toolchain, load_run_config, build_test_cmd, build_lint_cmd
 
 
 def run_baseline(project_dir: Path, iteration_id: str) -> None:
@@ -48,7 +32,12 @@ def run_baseline(project_dir: Path, iteration_id: str) -> None:
         print(f"错误: {dev_state} 不存在")
         return
 
+    # 加载工具链配置
+    config = load_run_config(project_dir)
+    toolchain = detect_toolchain(project_dir, config)
+
     print(f"运行基线测试: {project_dir}")
+    print(f"工具链: test_runner={toolchain['test_runner']}")
     print()
 
     # 获取当前 git commit
@@ -57,33 +46,49 @@ def run_baseline(project_dir: Path, iteration_id: str) -> None:
         capture_output=True,
         text=True,
         cwd=project_dir,
+        encoding="utf-8",
+        errors="replace",
     )
-    git_commit = git_result.stdout.strip().split(" ")[0] if git_result.returncode == 0 else ""
+    git_commit = ""
+    if git_result.returncode == 0 and git_result.stdout:
+        git_commit = git_result.stdout.strip().split(" ")[0]
 
     # 运行 L1 单元测试
     print("[1/3] 运行 L1 单元测试...")
-    l1_result = subprocess.run(
-        [sys.executable, "-m", "pytest", "tests/unit/", "-q", "--tb=no"],
-        capture_output=True,
-        text=True,
-        cwd=project_dir,
-        timeout=600,
-    )
-    l1_output = l1_result.stdout + l1_result.stderr
-    l1_parsed = parse_pytest_output(l1_output)
-    print(f"  L1: {l1_parsed['passed']} passed, {l1_parsed['failed']} failed, {l1_parsed['skipped']} skipped")
+    unit_dir = project_dir / "tests" / "unit"
+    if unit_dir.exists():
+        l1_cmd = build_test_cmd(toolchain, "tests/unit/", ["-q", "--tb=no"])
+        l1_result = subprocess.run(
+            l1_cmd,
+            capture_output=True,
+            text=True,
+            cwd=project_dir,
+            timeout=600,
+            encoding="utf-8",
+            errors="replace",
+        )
+        l1_output = l1_result.stdout + l1_result.stderr
+        l1_parsed = parse_pytest_output(l1_output)
+        print(f"  L1: {l1_parsed['passed']} passed, {l1_parsed['failed']} failed, {l1_parsed['skipped']} skipped")
+    else:
+        l1_parsed = {"passed": 0, "failed": 0, "skipped": 0}
+        l1_output = ""
+        print("  L1: N/A - 未找到测试目录 (tests/unit/)")
 
     # 运行 L2 集成测试
     print("[2/3] 运行 L2 集成测试...")
     l2_parsed = {"passed": 0, "failed": 0, "skipped": 0}
     integration_dir = project_dir / "tests" / "integration"
     if integration_dir.exists():
+        l2_cmd = build_test_cmd(toolchain, "tests/integration/", ["-q", "--tb=no"])
         l2_result = subprocess.run(
-            [sys.executable, "-m", "pytest", "tests/integration/", "-q", "--tb=no"],
+            l2_cmd,
             capture_output=True,
             text=True,
             cwd=project_dir,
             timeout=600,
+            encoding="utf-8",
+            errors="replace",
         )
         l2_output = l2_result.stdout + l2_result.stderr
         l2_parsed = parse_pytest_output(l2_output)
@@ -94,42 +99,44 @@ def run_baseline(project_dir: Path, iteration_id: str) -> None:
     # Lint 检查
     print("[3/3] Lint 检查...")
     lint_clean = True
-    # 检查 ruff 是否可用
-    ruff_check = subprocess.run(
-        [sys.executable, "-m", "ruff", "--version"],
-        capture_output=True, text=True,
-    )
-    if ruff_check.returncode != 0:
-        print("  Lint: 跳过（ruff 未安装，运行 pip install ruff 安装）")
-    else:
+    lint_cmd = build_lint_cmd(toolchain)
+    try:
         lint_result = subprocess.run(
-            [sys.executable, "-m", "ruff", "check", "."],
+            lint_cmd,
             capture_output=True,
             text=True,
             cwd=project_dir,
+            encoding="utf-8", errors="replace",
         )
         if lint_result.returncode != 0:
             lint_clean = False
-            print(f"  Lint: 有问题")
+            print("  Lint: 有问题")
         else:
-            print(f"  Lint: 通过")
+            print("  Lint: 通过")
+    except FileNotFoundError:
+        print("  Lint: 跳过（lint 工具未安装）")
 
-    # 收集预存失败
+    # 收集预存失败（依赖 pytest 输出格式: "FAILED tests/path::test_name - reason"）
     pre_existing = []
-    if l1_parsed["failed"] > 0:
+    if l1_parsed["failed"] > 0 and unit_dir.exists():
         # 重新运行获取失败的测试名
+        detail_cmd = build_test_cmd(toolchain, "tests/unit/", ["-q", "--tb=line"])
         detail_result = subprocess.run(
-            [sys.executable, "-m", "pytest", "tests/unit/", "-q", "--tb=line"],
+            detail_cmd,
             capture_output=True,
             text=True,
             cwd=project_dir,
             timeout=600,
+            encoding="utf-8", errors="replace",
         )
         for line in detail_result.stdout.split("\n"):
             if "FAILED" in line:
-                test_name = line.split(" ")[0].replace("FAILED", "").strip()
-                if test_name:
-                    pre_existing.append(test_name)
+                # pytest 格式: "FAILED tests/path::test_name - reason"
+                parts = line.strip().split(" ", 2)
+                if len(parts) >= 2 and parts[0] == "FAILED":
+                    test_name = parts[1].rstrip(" -")
+                    if test_name:
+                        pre_existing.append(test_name)
 
     # 写入 baseline.json
     baseline = {
@@ -146,9 +153,11 @@ def run_baseline(project_dir: Path, iteration_id: str) -> None:
         "lint_clean": lint_clean,
         "pre_existing_failures": pre_existing,
     }
+    if not unit_dir.exists():
+        baseline["l1_note"] = "N/A - 未找到测试目录 (tests/unit/)"
 
     baseline_path = dev_state / "baseline.json"
-    baseline_path.write_text(json.dumps(baseline, indent=2, ensure_ascii=False))
+    baseline_path.write_text(json.dumps(baseline, indent=2, ensure_ascii=False), encoding="utf-8")
 
     print()
     print("=" * 50)
@@ -165,7 +174,11 @@ def main() -> None:
     parser.add_argument("--project-dir", required=True, help="项目目录路径")
     parser.add_argument("--iteration-id", required=True, help="迭代 ID")
     args = parser.parse_args()
-    run_baseline(Path(args.project_dir), args.iteration_id)
+    project_dir = Path(args.project_dir).resolve()
+    if not project_dir.is_dir():
+        print(f"ERROR: --project-dir 目录不存在: {project_dir}")
+        sys.exit(1)
+    run_baseline(project_dir, args.iteration_id)
 
 
 if __name__ == "__main__":

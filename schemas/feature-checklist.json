@@ -8,7 +8,7 @@
     "created_at": "ISO 8601 时间戳",
     "features": [
       {
-        "id": "F001 (格式: F + 3位数字)",
+        "id": "F001 (格式: F + 3位数字, feature id 格式（如 F001）独立于 task id（如 F-001），两者命名空间不同)",
         "name": "特性名称 — 描述完整的端到端数据流",
         "status": "FAIL | PASS",
         "priority": "critical | high | medium | low",
@@ -51,7 +51,7 @@
           {"id": "F001-C5", "desc": "向量入库到 Milvus text_records", "status": "FAIL"},
           {"id": "F001-C6", "desc": "搜索 API 返回相关结果 (score>0.5)", "status": "FAIL"}
         ],
-        "verify_script": "iteration-0/verify/F001.py"
+        "verify_script": "iter-0/verify/F001.py"
       }
     ]
   }

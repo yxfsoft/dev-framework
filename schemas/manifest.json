@@ -1,0 +1,31 @@
+{
+  "$schema": "Iteration manifest format",
+  "$description": "记录迭代的元信息，每个迭代目录下必须有一个 manifest.json",
+
+  "format": {
+    "id": "迭代 ID (string, 格式: iter-N)",
+    "mode": "运行模式 (string: init | iterate)",
+    "status": "迭代状态 (string: planning | in_progress | completed | aborted)",
+    "created_at": "ISO 8601 时间戳",
+    "requirement_summary": "需求简述 (string)",
+    "phase": "当前阶段 (string: phase_0 ~ phase_5)",
+    "last_checkpoint": "最新检查点文件名 (string, nullable)"
+  },
+
+  "rules": {
+    "必须字段": "id, mode, status, created_at, requirement_summary 为必须字段",
+    "id 格式": "必须与所在迭代目录名一致（如 iter-1/manifest.json 的 id 为 iter-1）",
+    "状态流转": "planning → in_progress → completed 或 aborted",
+    "phase 更新": "随迭代推进由 Leader Agent 更新"
+  },
+
+  "example": {
+    "id": "iter-1",
+    "mode": "iterate",
+    "status": "completed",
+    "created_at": "2026-02-19T10:00:00+00:00",
+    "requirement_summary": "修复搜索超时问题；优化搜索结果排序",
+    "phase": "phase_5",
+    "last_checkpoint": "cp-002.md"
+  }
+}

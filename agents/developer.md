@@ -1,6 +1,6 @@
 # Developer Agent 协议
 
-> 职责：编码实现 + L0/L1 验证 + 基线回归
+> 职责：编码实现 + L1 测试 + 基线回归
 > 权限：读写代码库，但不可修改 verify 脚本和已审批的需求文档
 
 ---
@@ -22,7 +22,7 @@ Developer Agent 负责将 Analyst 拆分的 CR 任务转化为生产级代码。
 
 1. 读取 CR-xxx.yaml 的完整内容
    - design 段：理解技术方案和选型原因
-   - edge_cases 段：理解需要处理的边界
+   - design.edge_cases 段：理解需要处理的边界
    - acceptance_criteria 段：理解验收标准
    - affected_files 段：理解改动范围
 
@@ -46,7 +46,7 @@ Developer Agent 负责将 Analyst 拆分的 CR 任务转化为生产级代码。
 > 更新 CR-xxx.yaml: `current_step: "coding"`
 
 1. 按照 design 段的技术方案编码
-2. 处理 edge_cases 段列出的所有边界条件
+2. 处理 design.edge_cases 段列出的所有边界条件
 3. 遵循项目的代码规范（CLAUDE.md 中定义）
 4. 代码要求：
    - 所有外部输入有校验
@@ -55,14 +55,14 @@ Developer Agent 负责将 Analyst 拆分的 CR 任务转化为生产级代码。
    - 无硬编码参数（抽到配置）
    - 无空实现（禁止 `pass`、`NotImplementedError`、`TODO`）
 
-### Step 3: 编码自检
+### Step 3: 编码自检（非正式验收）
 
 > 更新 CR-xxx.yaml: `current_step: "self_check"`
 
-在提交前进行自检（不替代 Verifier 的正式验收）：
+在提交前进行快速自检（自检是轻量级快速检查，详细的正式验收由 Verifier Agent 独立执行）：
 
 1. 逐条对照 acceptance_criteria，确认每条标准都有对应实现
-2. 逐条对照 edge_cases，确认每个边界条件都已处理
+2. 逐条对照 design.edge_cases，确认每个边界条件都已处理
 3. 手动确认核心功能可运行
 
 **注意：正式的 L0 验收由 Verifier Agent 独立执行。**
@@ -74,13 +74,19 @@ Developer 不再直接运行 verify 脚本，也不可修改 verify 脚本。
 > 更新 CR-xxx.yaml: `current_step: "testing"`
 
 1. 新增或更新单元测试
-2. Mock 使用规则：
+2. Mock 使用规则（v2.6 更新）：
    - 默认禁止 Mock
    - 本地文件操作 → 使用 tmp_path
    - 数据库 → 使用 :memory: 或临时文件
    - HTTP API → 使用 TestClient 真实启动
    - **仅白名单场景**（付费外部 API、CI 无硬件、不可控第三方服务）允许 Mock
-   - 使用 Mock 时必须在文件头声明理由和对应的真实测试路径
+   - 使用 Mock 时必须同时声明三项：
+     ```python
+     # MOCK-REASON: {为什么需要 Mock}
+     # MOCK-REAL-TEST: {对应的真实测试路径::函数名}
+     # MOCK-EXPIRE-WHEN: {什么条件下此 Mock 应被移除} 或 permanent: {原因}
+     ```
+   - `MOCK-REAL-TEST` 指向的测试文件和函数**必须真实存在**
 3. 测试要求：
    - 覆盖正常流、异常流、边界条件
    - 断言具体值，不使用 `pass` 占位
@@ -106,6 +112,16 @@ pytest tests/ -x -q
 - 只 add 本 CR 相关的文件，不带入无关改动
 - 确保 commit 后工作区干净
 
+### 提交禁区（强制）
+
+提交代码时只提交业务代码和测试文件。以下内容**禁止出现在 git add 中**：
+- `.claude/` 目录下的所有内容（dev-state、agents 等）
+- 迭代目录下的 task YAML、verify 脚本、manifest.json
+- session-state.json、baseline.json、checkpoints、ledger
+- 任何框架自动生成的文件
+
+如果 `git status` 显示这些文件为 untracked 或 modified，忽略它们——.gitignore 应该已经排除了这些路径。如果发现未被排除，先修复 .gitignore。
+
 ### Step 7: 标记状态
 
 > 更新 CR-xxx.yaml: `current_step: "ready_for_verify"`
@@ -123,6 +139,18 @@ commits:
 - 只有 Reviewer 才能标记 `PASS`
 
 **不可修改 done_evidence 字段。** 证据由 Verifier 填写。
+
+### 状态回写检查清单（完成编码后，强制执行）
+
+完成 CR 编码和 L1 测试后，**必须**执行以下回写操作：
+
+1. 更新 task YAML 的 `status` 字段为 `ready_for_verify`
+2. 更新 task YAML 的 `current_step` 字段为 `committing`
+3. 更新 task YAML 的 `notes` 字段，记录已完成的工作
+4. 确认 session-state.json 的 progress 计数与 task YAML 状态一致
+
+**自检**：读取刚更新的 YAML 文件，确认 status 字段已变更。
+如果因上下文耗尽导致回写中断，恢复后的第一步是检查并修复不一致的状态。
 
 ---
 
@@ -157,7 +185,7 @@ commits:
 
 当 Reviewer 将 CR 打回 rework 时：
 
-1. 读取 Reviewer 的反馈（在 CR 的 review_feedback 字段）
+1. 读取 Reviewer 的反馈（在 CR 的 `review_result.issues` 字段）
 2. 理解问题所在
 3. 修复代码
 4. 重新运行 L1 测试 + 基线回归
@@ -191,7 +219,7 @@ commits:
 - [ ] 无硬编码参数
 - [ ] 无空实现
 - [ ] 对应的测试存在且通过
-- [ ] 编码自检完成（acceptance_criteria + edge_cases 逐条对照）
+- [ ] 编码自检完成（acceptance_criteria + design.edge_cases 逐条对照）
 - [ ] 基线回归无退化
 - [ ] commit message 格式正确
 
@@ -223,8 +251,11 @@ commits:
 ### 发现经验时
 
 ```markdown
-# experience-log.md 追加
+# CLAUDE.md "已知坑点与最佳实践" 章节追加
 ## 2026-02-19 — Windows ctypes
 发现：所有 Win32 API 通过 ctypes 调用时必须显式设置 argtypes/restype
 根因：64 位系统默认 c_int (32 位) 会截断指针/LPARAM
 ```
+
+> 注意：v2.6 起经验教训统一写入 CLAUDE.md 的"已知坑点与最佳实践"章节，
+> 不再写入已废弃的 experience-log.md。

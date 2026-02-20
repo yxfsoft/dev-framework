@@ -8,6 +8,42 @@
 mode: "interactive"   # interactive | auto-loop
 
 # ──────────────────────────────────────────────────
+# 工具链配置（v2.6 FIX-01 新增）
+# ──────────────────────────────────────────────────
+toolchain:
+  # 测试运行器（自动检测优先级：uv > poetry > pip）
+  test_runner: "auto"          # "auto" | "uv run pytest" | "poetry run pytest" | "pytest"
+  # Lint 工具
+  linter: "auto"               # "auto" | "uv run ruff check ." | "ruff check ."
+  # 格式化工具
+  formatter: "auto"            # "auto" | "uv run ruff format --check ." | "ruff format --check ."
+  # Python 解释器（用于运行 verify 脚本）
+  python: "auto"               # "auto" | "uv run python" | "poetry run python" | "python"
+
+# ──────────────────────────────────────────────────
+# 迭代模式（v2.6 FIX-10 新增）
+# ──────────────────────────────────────────────────
+# v2.6 预留字段（当前仅文档层面支持，脚本尚未实现运行时检查）
+# 预留字段，计划 v3.0 实现运行时检查
+# 可选值：
+#   "standard"    → 完整 5 Phase（Verify 和 Review 分开执行）
+#   "lightweight" → 合并 Phase 3.5（独立验收）+ Phase 4（Verify+Review 由同一 Agent 执行）
+#                   条件：CR 数 ≤ 5 或 all CR are enhancement/bug_fix
+# 注意：lightweight 模式必须在 decisions.md 中声明放弃了哪些检查
+iteration_mode: "standard"
+
+# ──────────────────────────────────────────────────
+# Git Hooks 配置（v2.6 FIX-08 新增）
+# ──────────────────────────────────────────────────
+hooks:
+  commit_message_pattern: "default"
+  # "default"    → [模块] 动作：描述 (CR-xxx)
+  # "cr-suffix"  → 自由格式 (CR-xxx)    — CR 后缀必须有，格式不限
+  # "flexible"   → 完全自由格式          — 不做格式检查
+  # "custom"     → 用户自定义正则        — 见 commit_message_regex
+  commit_message_regex: ""  # 仅当 pattern=custom 时生效
+
+# ──────────────────────────────────────────────────
 # Interactive 模式参数
 # ──────────────────────────────────────────────────
 interactive:
@@ -30,6 +66,8 @@ interactive:
 # ──────────────────────────────────────────────────
 # Auto Loop 模式参数
 # ──────────────────────────────────────────────────
+# 注意：run-baseline.py 生成的 baseline.json 中，E2E 相关字段（如 e2e_passed、
+# e2e_total 等）为可选字段，未配置 E2E 测试的项目可忽略。
 auto_loop:
   # 单任务最大重试次数（L0/L1 失败时重试）
   max_retries_per_task: 2

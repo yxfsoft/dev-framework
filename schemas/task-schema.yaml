@@ -5,21 +5,27 @@
 
 # 必须字段
 required_fields:
-  - id           # 唯一标识，格式: CR-xxx 或 INF-xxx 或 F-xxx
+  - id           # 唯一标识，格式: CR-xxx 或 INF-xxx 或 F-xxx 或 HF-xxx
   - type         # 任务类型
   - iteration    # 所属迭代 ID
   - title        # 任务标题（简短描述）
-  - design       # 技术方案
+  - priority     # 优先级（v2.6 FIX-09 新增）
+  - design       # 技术方案（hotfix 类型豁免）
   - affected_files  # 受影响文件列表
-  - acceptance_criteria  # 验收标准列表
+  - acceptance_criteria  # 验收标准列表（hotfix 类型豁免）
   - status       # 当前状态
+
+# hotfix 类型豁免字段（v2.6）
+# hotfix 为紧急修复快速通道，以下字段非必须:
+#   - design（hotfix 用 fix_description 替代）
+#   - acceptance_criteria（hotfix 用 verification 替代）
 
 # 字段定义
 fields:
 
   id:
     type: string
-    pattern: "^(CR|INF|F)-\\d{3,}$"
+    pattern: "^(CR|INF|F|HF)-\\d{3,}$"
     description: "任务唯一标识"
 
   type:
@@ -29,18 +35,32 @@ fields:
       - bug_fix         # Bug 修复
       - enhancement     # 功能增强
       - refactor        # 重构
-      - infrastructure  # 基础设施
+      - infrastructure  # 基础设施（无单独模板，使用通用任务格式）
+      - hotfix          # 紧急修复（v2.6 新增）
     description: "任务类型"
 
   iteration:
     type: string
     pattern: "^(iteration|iter)-\\d+$"
-    description: "所属迭代 ID（如 iter-3 或 iteration-3）"
+    description: "所属迭代 ID，统一使用 iter-N 格式（如 iter-0、iter-3）"
+
+  priority:
+    type: string
+    enum:
+      - P0    # 阻断（必须最先处理）
+      - P1    # 必须（本轮迭代必须完成）
+      - P2    # 可选（资源允许时完成）
+    default: "P1"
+    description: "任务优先级（v2.6 FIX-09 新增）"
 
   title:
     type: string
     max_length: 100
     description: "任务标题"
+
+  description:
+    type: string
+    description: "任务详细描述（功能说明、修复描述等）"
 
   design:
     type: object
@@ -81,6 +101,12 @@ fields:
     items: string
     max_items: 5
     description: "受影响的文件路径（不超过 5 个）"
+
+  affected_modules:
+    type: array
+    items: string
+    description: "受影响的模块名列表（enhancement 等类型使用）"
+    applicable_types: [enhancement]
 
   acceptance_criteria:
     type: object
@@ -188,6 +214,7 @@ fields:
 
   done_evidence:
     type: object
+    # nullable: 任务创建初期可为 null，模板建议预填空结构 { tests: [], logs: [], notes: [] }
     nullable: true
     description: "验收证据归档（Verifier 填写，Developer 不可修改）"
     properties:
@@ -204,15 +231,54 @@ fields:
         items: string
         description: "补充说明"
 
+  decisions_ref:
+    type: array
+    description: "关联的决策编号列表，详细内容见 decisions.md（v2.6 FIX-12 新增）"
+    items: {type: string}
+
   review_result:
     type: object
     nullable: true
     properties:
-      reviewer: string
-      reviewed_at: string
-      verdict: string  # PASS / REWORK
-      notes: string
-      issues: array
+      reviewer:
+        type: string
+        description: "审查者标识"
+      reviewed_at:
+        type: string
+        format: datetime
+        description: "审查时间"
+      verdict:
+        type: string
+        enum: [PASS, REWORK]
+        description: "审查结论（PASS / REWORK）"
+      notes:
+        type: string
+        description: "审查备注"
+      issues:
+        type: array
+        items:
+          type: object
+          properties:
+            severity:
+              type: string
+              enum: [critical, major, minor, info]
+            desc:
+              type: string
+            suggestion:
+              type: string
+          required: [severity, desc]
+        description: "审查发现的问题列表"
+
+  # hotfix 类型专用字段（v2.6）
+  fix_description:
+    type: string
+    description: "修复方案描述（hotfix 专用，替代 design 字段）"
+    applicable_types: [hotfix]
+
+  verification:
+    type: string
+    description: "验证方式描述（hotfix 专用，替代 acceptance_criteria 字段）"
+    applicable_types: [hotfix]
 
   # bug_fix 类型专用字段
   current_behavior:
