@@ -147,6 +147,18 @@ auto-loop: 全自动执行
   - 检测失败（连续失败计数）
 - 管理集成检查点
 
+##### Phase 3: 特殊状态处理（Leader 职责）
+
+当任务进入以下特殊状态时，**Leader 必须介入处理**：
+
+| 状态 | 处理方式 |
+|------|---------|
+| failed（retries >= max_retries） | 评估原因：① 重置 retries=0 + status=pending 重新分配，或 ② 标 blocked 等人工介入 |
+| blocked（外部依赖不可用） | 跳过该任务继续其他任务，阻塞解除后重置为 pending |
+| timeout（单任务执行超时） | 同 failed 处理，分析超时原因，必要时拆分 CR |
+
+**每次恢复操作必须记录 decisions.md**（包含原因、恢复路径、风险评估）。
+
 ##### Phase 3.5（独立验收）
 - 委托 Verifier Agent 对 ready_for_verify 的 CR 执行 L0 验收
 - Verifier 运行 verify 脚本并收集 done_evidence
@@ -159,18 +171,24 @@ auto-loop: 全自动执行
 - 处理 PASS：更新总进度
 
 ##### Phase 5: 交付
-- 确认所有 CR 为 PASS
-- 运行最终全量测试
-- 生成迭代报告
-- 更新进度文件
-- git commit + push
+1. 运行完成检查：`python <框架路径>/scripts/phase-gate.py --project-dir "." --iteration-id {iter_id} --check-completion`
+2. 确认所有 CR 为 PASS
+3. 运行最终全量测试（L1 + L2 + lint）
+4. 生成迭代报告
+5. 更新进度文件
+6. 写入最终 checkpoint
+7. git commit + push
 
 #### 3.3 Init-Mode 特有规则
 
 init-mode（首次开发 = iter-0）在通用 Phase 流程基础上有以下额外规则：
 
 1. **基础设施冻结**：Phase 2 基础设施批次完成后（Batch 0 全部通过验证），基础设施代码只能扩展不能修改。若必须修改基础设施，走独立 CR 审批
-2. **Feature Checklist**：使用 `feature-checklist.json` 追踪功能完成度（路径 `.claude/dev-state/iter-0/feature-checklist.json`）。所有 Feature 初始为 FAIL，每个切片完成后更新对应 criteria 状态。Phase 4 审查通过时同步更新。所有 Feature 必须为 PASS 才能进入 Phase 5
+2. **Feature Checklist**：使用 `feature-checklist.json` 追踪功能完成度（路径 `.claude/dev-state/iter-0/feature-checklist.json`，init-project.py 自动生成空白文件）。
+   - **Analyst（Phase 2）**：在任务拆分时填充 feature-checklist.json，为每个垂直切片创建 Feature 条目，关联对应的 CR
+   - **Reviewer（Phase 4）**：审查通过 CR 时同步更新对应 Feature 的状态为 PASS
+   - 所有 Feature 初始为 FAIL，每个切片完成后更新对应 criteria 状态
+   - 所有 Feature 必须为 PASS 才能进入 Phase 5
 3. **切片顺序**：按优先级排序执行，高优先级切片先做。跨切片依赖时，被依赖的切片优先
 4. **渐进交付**：每完成一个切片就是一个可运行的增量
 5. **Phase 5 交付差异**：交付物是完整项目（含 ARCHITECTURE.md + 测试套件），feature-checklist.json 归档为验收清单，首次迭代测试结果写入 baseline.json 成为后续 iterate-mode 的基线
@@ -239,26 +257,44 @@ iterate-mode 在通用 Phase 流程基础上有以下额外约束：
   → 或每完成 3 个 CR
 ```
 
-#### 轻量迭代模式 [实验性 — v3.1 完善]
+#### 轻量迭代模式 (lightweight)
 
-当 run-config.yaml 配置 `iteration_mode: lightweight` 时：
+当 run-config.yaml 配置 `iteration_mode: lightweight` 时，启用轻量模式。
 
-1. Phase 3.5 和 Phase 4 合并为一个"Verify+Review"子代理
-2. 该子代理同时执行 Verifier 和 Reviewer 的职责
-3. **必须**在 decisions.md 中记录：
-   - 选择轻量模式的原因
-   - 放弃了哪些检查（通常是 Reviewer 五维度中的 D、E 维度简化）。D（回归安全）降级为抽检关键路径，E（证据完整性）仅检查必要证据项是否存在，不做深度审查
-4. Phase 转换门控（phase-gate.py）的检查不变，仍然强制执行
+**启用条件**（必须同时满足，否则必须使用 standard 模式）：
+- CR 数量 ≤ 5，或全部为 enhancement/bug_fix 类型
+- 无 P0（阻断级别）任务
+- 在 decisions.md 中声明选择轻量模式的原因
+
+**Phase 合并方式**：
+1. Phase 3.5（验收）和 Phase 4（审查）合并为一个"Verify+Review"阶段
+2. 由同一 Agent 同时执行 Verifier 和 Reviewer 的职责
+3. Phase 转换门控（phase-gate.py）的检查不变，仍然强制执行
+
+**合并 Agent 职责**：
+- 执行完整的 L0 验收（运行 verify 脚本 + 收集 done_evidence）
+- 执行代码审查维度 A/B/C（需求覆盖、代码质量、测试质量）完整检查
+- 维度 D（回归安全）降级为抽检关键路径（非全量 git diff 检查）
+- 维度 E（证据完整性）仅检查必要证据项是否存在，不做深度审查
+
+**记录义务**：
+- decisions.md 中必须记录：选择原因、放弃了哪些检查、合并 Agent 的身份
+- 该声明需在进入 Phase 3 前完成，不可事后补记
 
 ---
 
 ### 五、Auto Loop 控制逻辑
 
+**说明**：`auto-loop-runner.py` 是外围循环脚本（负责会话重启 + 安全阀），Phase 门控由 Agent 协议内部的 Leader 流程驱动，与 interactive 模式使用相同规则。
+
 ```python
 def auto_loop():
     setup_environment()       # Phase 0
+    run_phase_gate(0, 1)      # Phase 0→1 门控
     process_requirements()    # Phase 1 (auto)
+    run_phase_gate(1, 2)      # Phase 1→2 门控
     decompose_tasks()         # Phase 2 (auto)
+    run_phase_gate(2, 3)      # Phase 2→3 门控
 
     consecutive_failures = 0
 
@@ -281,6 +317,10 @@ def auto_loop():
                 stop_with_report("连续失败达到上限")
             continue
 
+        # Phase 3→3.5 门控（所有 CR 开发完成时）
+        if all_tasks_ready_for_verify():
+            run_phase_gate(3, 3.5)
+
         # 验收（Verifier 独立执行）
         task.status = "ready_for_verify"
         verify_ok = verifier_verify(task)
@@ -291,6 +331,10 @@ def auto_loop():
                 task.status = "failed"
                 consecutive_failures += 1
             continue
+
+        # Phase 3.5→4 门控（所有 CR 验收完成时）
+        if all_tasks_ready_for_review():
+            run_phase_gate(3.5, 4)
 
         # 审查
         task.status = "ready_for_review"
@@ -312,8 +356,12 @@ def auto_loop():
 
         write_checkpoint()
 
+    # Phase 4→5 门控
+    run_phase_gate(4, 5)
+
     # 交付
-    run_final_verification()  # Phase 5（交付）
+    run_phase_5_completion_check()  # --check-completion
+    run_final_verification()        # Phase 5（交付）
     generate_report()
 ```
 
@@ -458,6 +506,10 @@ def auto_loop():
 - 不需要 verify 脚本
 - Leader 执行简化审查（仅检查基线回归 + 变更范围合理）
 - 但必须：1) 有 L1 基线回归通过 2) 在 decisions.md 中记录
+
+**Hotfix 的 Phase 门控特殊处理**：
+- Phase 3→3.5 和 3.5→4：`phase-gate.py` 跳过 hotfix 类型 CR 的状态检查（`type=="hotfix"` 时自动放行）
+- Phase 4→5：仍检查 hotfix CR 的 status=PASS 和 done_evidence 非空（基线回归结果必须记录）
 
 ---
 
@@ -908,6 +960,22 @@ Developer Agent 负责将 Analyst 拆分的 CR 任务转化为生产级代码。
 
 ### 二、单任务工作流
 
+#### current_step 更新规则（强制）
+
+**每个 Step 开始时，必须先更新 CR-xxx.yaml 的 `current_step` 字段，然后再执行该 Step 的操作。**
+
+| Step | current_step 值 | 说明 |
+|------|----------------|------|
+| Step 1 | `reading_code` | 正在读代码、理解任务 |
+| Step 2 | `coding` | 正在编码实现 |
+| Step 3 | `self_check` | 编码自检 |
+| Step 4 | `testing` | 运行 L1 测试 |
+| Step 5 | `regression` | 基线回归 |
+| Step 6 | `committing` | git commit |
+| Step 7 | `ready_for_verify` | 已提交验收 |
+
+此字段用于上下文压缩后恢复执行进度，漏更新将导致恢复时无法准确定位。
+
 #### Step 1: 理解任务
 
 > 更新 CR-xxx.yaml: `current_step: "reading_code"`
@@ -1279,7 +1347,8 @@ rework → Developer 修复 → ready_for_verify → Verifier 重新验收
 
 - **状态流转**：`PASS` → 状态不变 / `rework` → Developer 修复 → `ready_for_verify` → 重新走 Verifier + Reviewer 链条
 - **done_evidence**：每次 rework 后的验收证据覆盖旧版本（非追加），确保证据与最终代码一致
-- **retries 字段**：任务 YAML 中的 `retries` 字段在每次 rework 时自增。超过 `max_retries_per_task` 时标记为 `failed`
+- **retries 字段**：任务 YAML 中的 `retries` 字段在每次 rework 时自增。超过 `max_retries`（优先取 task YAML 的 `max_retries` 字段，null 时取 run-config.yaml 的 `max_retries_per_task`，默认 2）时标记为 `failed`
+- **failed 恢复**：任务标记为 `failed` 后，只有 Leader 可以恢复（重置 retries + status=pending 或标 blocked），且必须记录 decisions.md
 
 ---
 
@@ -1892,11 +1961,14 @@ Reviewer 在 Gate 6 中检查：
 
 - **频率**：每个 CR step 完成后更新（默认 per_step，v3.1 将支持通过 run-config.yaml 配置）
 - **方式**：必须用 Write 工具**整体覆盖**（不是追加），所以文件大小恒定
-- **触发**：在完成以下事件后必须更新：
-  - 每个 CR 的 step 完成
-  - Phase 转换
-  - 关键技术决策
-  - 发现问题或坑点
+- **触发**：在完成以下 7 个显著动作后必须更新：
+  1. 任务状态变更（CR status 变化时）
+  2. 任务步骤推进（CR current_step 变化时）
+  3. Phase 转换完成（phase-gate.py 通过后）
+  4. checkpoint 写入后（session-manager.py checkpoint 执行后）
+  5. 关键技术决策记录后（写入 decisions.md 后）
+  6. 发现问题后（发现坑点或重大问题时）
+  7. 会话中断恢复时（新会话读取状态后）
 
 ### 内容要求
 

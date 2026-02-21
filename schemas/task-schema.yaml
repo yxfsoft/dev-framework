@@ -187,7 +187,10 @@ fields:
       - regression         # 基线回归
       - committing         # git commit
       - ready_for_verify   # 已提交验收
-    description: "当前执行步骤（in_progress 时由 Developer 更新）"
+    description: |
+      当前执行步骤（in_progress 时由 Developer 更新）。
+      每个 Step 开始时必须先更新此字段，再执行操作。
+      用于上下文压缩后恢复执行进度。详见 Developer 协议 §二。
 
   # 可选字段
   owner:
@@ -197,7 +200,16 @@ fields:
   retries:
     type: integer
     default: 0
-    description: "重试次数"
+    description: "重试次数（每次 rework 时自增，由 Verifier/Reviewer 标记 rework 时更新）"
+
+  max_retries:
+    type: integer
+    nullable: true
+    default: null
+    description: |
+      单任务最大重试次数。null 时使用 run-config.yaml 的 max_retries_per_task（默认 2）。
+      超过此值时 Leader 将任务标记为 failed。
+      恢复 failed 任务必须由 Leader 执行并记录 decisions.md。
 
   depends:
     type: array

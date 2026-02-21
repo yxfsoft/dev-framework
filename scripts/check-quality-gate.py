@@ -42,6 +42,7 @@ import sys
 from pathlib import Path
 
 # 目录遍历时需要跳过的常见非项目目录
+# 仅用于 gate_7 的 os.walk 遍历（空实现检查 NotImplementedError），其他 Gate 不使用此集合
 _SKIP_DIRS = {".git", "__pycache__", "node_modules", ".venv", "venv", ".tox", ".mypy_cache", ".pytest_cache", "dist", "build"}
 
 # 检查结果缓存（同一次 main() 调用内避免重复执行相同检查）

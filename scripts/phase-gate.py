@@ -108,7 +108,11 @@ def check_phase_2_to_3(iter_dir: Path) -> list[str]:
     # 检查 4：manifest phase 应为 phase_2
     manifest = iter_dir / "manifest.json"
     if manifest.exists():
-        data = json.loads(manifest.read_text(encoding="utf-8"))
+        try:
+            data = json.loads(manifest.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError) as e:
+            errors.append(f"manifest.json 读取/解析失败: {e}")
+            return errors
         # C2: 加载后校验 manifest 完整性（仅 WARN，不阻断）
         m_errors = validate_manifest(data)
         if m_errors:
@@ -243,11 +247,74 @@ def check_phase_4_to_5(iter_dir: Path) -> list[str]:
     return errors
 
 
+def check_phase_5_complete(iter_dir: Path) -> list[str]:
+    """Phase 5 完成检查：验证迭代是否满足所有交付条件。"""
+    errors = []
+
+    if yaml is None:
+        errors.append("PyYAML 未安装，无法解析任务文件")
+        return errors
+
+    tasks_dir = iter_dir / "tasks"
+    if not tasks_dir.exists():
+        errors.append("tasks/ 目录不存在")
+        return errors
+
+    # 检查 1：所有 CR status=PASS
+    task_files = list(tasks_dir.glob("*.yaml"))
+    if not task_files:
+        errors.append("tasks/ 目录为空")
+    for tf in task_files:
+        try:
+            data = yaml.safe_load(tf.read_text(encoding="utf-8"))
+        except (yaml.YAMLError, OSError) as e:
+            errors.append(f"{tf.name}: 读取/解析失败 — {e}")
+            continue
+        if not data:
+            continue
+        task_id = data.get("id", tf.stem)
+        status = data.get("status", "pending")
+        if status != "PASS":
+            errors.append(f"{task_id}: status={status}，预期 PASS")
+
+    # 检查 2：所有非 hotfix CR 的 review_result.verdict=PASS
+    for tf in task_files:
+        try:
+            data = yaml.safe_load(tf.read_text(encoding="utf-8"))
+        except (yaml.YAMLError, OSError):
+            continue
+        if not data:
+            continue
+        task_id = data.get("id", tf.stem)
+        task_type = data.get("type", "")
+        if task_type == "hotfix":
+            continue
+        review = data.get("review_result")
+        if not review or review.get("verdict") != "PASS":
+            errors.append(f"{task_id}: review_result.verdict 不为 PASS")
+
+    # 检查 3：checkpoints/ 非空
+    cp_dir = iter_dir / "checkpoints"
+    if not cp_dir.exists() or not list(cp_dir.glob("cp-*.md")):
+        errors.append("checkpoints/ 目录为空，缺少进度快照")
+
+    # 检查 4：verify/ 非空
+    verify_dir = iter_dir / "verify"
+    if not verify_dir.exists() or not list(verify_dir.glob("*.py")):
+        errors.append("verify/ 目录为空，缺少验收脚本")
+
+    return errors
+
+
 def _update_manifest_phase(iter_dir: Path, new_phase: str) -> None:
     """更新 manifest.json 中的 phase 字段，并同步更新 session-state.json。"""
     manifest = iter_dir / "manifest.json"
     if manifest.exists():
-        data = json.loads(manifest.read_text(encoding="utf-8"))
+        try:
+            data = json.loads(manifest.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError) as e:
+            print(f"  [ERROR] manifest.json 读取/解析失败: {e}")
+            return
         # C2: 加载后校验 manifest 完整性（仅 WARN，不阻断）
         m_errors = validate_manifest(data)
         if m_errors:
@@ -281,11 +348,15 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Phase 转换门控检查")
     parser.add_argument("--project-dir", required=True, help="项目目录路径")
     parser.add_argument("--iteration-id", required=True, help="迭代 ID")
-    parser.add_argument("--from", dest="from_phase", required=True, help="当前 Phase")
-    parser.add_argument("--to", dest="to_phase", required=True, help="目标 Phase")
+    parser.add_argument("--from", dest="from_phase", required=False, help="当前 Phase")
+    parser.add_argument("--to", dest="to_phase", required=False, help="目标 Phase")
     parser.add_argument(
         "--force", action="store_true",
         help="强制跳过门控（必须在 decisions.md 中记录原因）"
+    )
+    parser.add_argument(
+        "--check-completion", action="store_true",
+        help="检查 Phase 5 是否满足所有交付条件（独立于 Phase 转换使用）"
     )
     args = parser.parse_args()
 
@@ -294,6 +365,23 @@ def main() -> int:
         print(f"ERROR: --project-dir 目录不存在: {project_dir}")
         return 1
     iter_dir = project_dir / ".claude" / "dev-state" / args.iteration_id
+
+    # --check-completion: 独立检查 Phase 5 交付条件
+    if args.check_completion:
+        errors = check_phase_5_complete(iter_dir)
+        if errors:
+            print(f"[BLOCKED] Phase 5 完成检查未通过（{len(errors)} 个问题）：")
+            for e in errors:
+                print(f"  - {e}")
+            return 1
+        else:
+            print("[PASS] Phase 5 完成检查通过：所有 CR 为 PASS，review 通过，checkpoints 和 verify 非空")
+            return 0
+
+    if not args.from_phase or not args.to_phase:
+        print("ERROR: Phase 转换模式需要 --from 和 --to 参数")
+        return 1
+
     key = (args.from_phase, args.to_phase)
     checker = GATE_MAP.get(key)
 

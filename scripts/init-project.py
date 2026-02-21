@@ -242,6 +242,15 @@ def init_project(project_dir: Path, requirement_doc: str, tech_stack: str) -> No
     print(f"初始化项目: {project_dir}")
     print(f"需求文档: {requirement_doc}")
     print(f"技术栈: {tech_stack}")
+
+    # 检查 requirement_doc 路径是否存在（WARN 级别，不阻断初始化）
+    req_path = Path(requirement_doc)
+    if not req_path.is_absolute():
+        req_path = project_dir / req_path
+    if not req_path.exists():
+        print(f"  [WARN] 需求文档路径不存在: {requirement_doc}")
+        print(f"         请在 Phase 1 开始前确保文档就绪")
+
     print()
 
     # 1. 创建目录结构
@@ -413,6 +422,18 @@ def init_project(project_dir: Path, requirement_doc: str, tech_stack: str) -> No
         json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8"
     )
     print(f"  生成: iter-0/manifest.json")
+
+    # 6.5 生成空白 feature-checklist.json（init-mode / iter-0 专用）
+    checklist_path = project_dir / ".claude" / "dev-state" / "iter-0" / "feature-checklist.json"
+    if not checklist_path.exists():
+        checklist_content = {
+            "description": "Feature checklist for init-mode (iter-0). Analyst fills in Phase 2, Reviewer updates in Phase 4.",
+            "features": []
+        }
+        checklist_path.write_text(
+            json.dumps(checklist_content, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+        print(f"  生成: iter-0/feature-checklist.json（空白，由 Analyst 在 Phase 2 填充）")
 
     # 7. 生成迭代初始文件
     empty_files = {

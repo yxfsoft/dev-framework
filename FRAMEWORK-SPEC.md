@@ -164,6 +164,28 @@ Reviewer   |   ✓    |   ✗    |    ✗     |   ✓    |     ✗      |    ✓
 2. **context-snapshot.md（磁盘层，可恢复）**：滚动快照记录进度和上下文，压缩后重新读取恢复
 3. **磁盘状态文件体系（完整恢复层）**：P3 原则保证关键信息实时写入，`session-manager.py resume` 输出完整恢复摘要
 
+### 4.5 context-snapshot.md 更新规则
+
+`context-snapshot.md` 是滚动快照文件，用于跨会话快速恢复状态。更新规则如下：
+
+**触发事件**（以下 7 个显著动作完成后必须更新）：
+
+| # | 触发事件 | 说明 |
+|---|---------|------|
+| 1 | 任务状态变更 | CR status 变化时（如 pending→in_progress、ready_for_verify→rework） |
+| 2 | 任务步骤推进 | CR current_step 变化时（如 reading_code→coding→testing） |
+| 3 | Phase 转换完成 | phase-gate.py 通过后 |
+| 4 | checkpoint 写入后 | session-manager.py checkpoint 执行后 |
+| 5 | 关键技术决策记录后 | 写入 decisions.md 后 |
+| 6 | 发现问题后 | 发现坑点或重大问题时 |
+| 7 | 会话中断恢复时 | 新会话读取状态后 |
+
+**更新方式**：用 Write 工具**整体覆盖**（非追加），确保文件大小恒定。
+
+**格式说明**：
+- Agent 手动更新使用完整模板格式（含所有 section）
+- `session-manager.py checkpoint` 使用简化版格式（自动生成的进度摘要），不包含技术上下文等需要 Agent 判断的内容
+
 ### 4.4 用户退出再返回
 
 新开 session 时执行标准启动流程，读取全部状态文件后输出恢复摘要。
@@ -184,6 +206,12 @@ Reviewer   |   ✓    |   ✗    |    ✗     |   ✓    |     ✗      |    ✓
 ### 5.3 Auto Loop 模式
 
 全自动执行 Phase 0→5，设置六重安全阀：连续 N 次失败、基线退化、单任务超时、git 冲突、磁盘空间不足、连续无进展。任一触发时停止。
+
+**与 Phase 门控的关系**：
+- `auto-loop-runner.py` 是外围循环脚本，负责会话重启和安全阀检查
+- Phase 门控由 Agent 协议内部的 Leader 流程驱动，与 interactive 模式使用**相同规则**
+- 即 auto-loop 模式下 Phase 转换前仍必须运行 `phase-gate.py`，不允许跳过
+- `auto-loop-runner.py` 不直接调用 `phase-gate.py`，Phase 门控由 Claude 会话内的 Leader Agent 负责执行
 
 ---
 
@@ -223,6 +251,21 @@ L2 集成测试: 零 Mock，完整链路
 | Gate 6 | 代码审查 | Reviewer 独立审查 PASS | check-quality-gate.py |
 | Gate 7 | 最终验收 | 全量测试 + lint + E2E | phase-gate.py |
 
+**Phase 5 完成检查**（`phase-gate.py --check-completion`）：
+
+Phase 5 交付前必须通过完成检查，验证以下条件：
+1. 所有 CR status=PASS
+2. 所有非 hotfix CR 的 review_result.verdict=PASS
+3. checkpoints/ 目录非空（证明有进度记录）
+4. verify/ 目录非空（证明有验收脚本）
+
+```bash
+python dev-framework/scripts/phase-gate.py \
+    --project-dir "<项目路径>" \
+    --iteration-id "iter-N" \
+    --check-completion
+```
+
 各门控的详细规则和执行协议，详见运行时 `.claude/CLAUDE.md`（由 `CLAUDE-framework.md.tmpl` 生成）。
 
 **脚本职责说明**：
@@ -233,19 +276,46 @@ L2 集成测试: 零 Mock，完整链路
 
 ```
 pending → in_progress → ready_for_verify → ready_for_review → PASS
-               ↑                                    │
-               └────────────── rework ──────────────┘
+               ↑               │                    │
+               │          [Verifier]            [Reviewer]
+               │           rework ──┐          rework ──┐
+               │                    │                    │
+               └────────────────────┴────────────────────┘
+                        Developer 修复后重新标记 ready_for_verify
 
 执行者:
   Developer  → pending 到 ready_for_verify
   Verifier   → ready_for_verify 到 ready_for_review（或 rework）
   Reviewer   → ready_for_review 到 PASS（或 rework）
 
+Rework 完整链条（不允许跳过）:
+  rework → Developer 修复 → ready_for_verify → Verifier 重新验收
+         → ready_for_review → Reviewer 重新审查 → PASS 或再次 rework
+  每次 rework 时:
+    - retries 自增 1
+    - done_evidence 全部覆盖（非追加），确保证据与最终代码一致
+    - 不允许从 rework 直接跳到 ready_for_review（必须重走 Verifier）
+
 特殊状态:
-  failed    — 超过最大重试次数
-  blocked   — 等待外部依赖
-  timeout   — 执行超时
+  failed    — retries >= max_retries（默认 2），需 Leader 介入恢复
+  blocked   — 等待外部依赖，Leader 在条件解除后重置为 pending
+  timeout   — 执行超时，同 failed 处理
 ```
+
+### 6.2.2 特殊状态恢复规则
+
+当任务进入 `failed`、`blocked`、`timeout` 状态后，必须由 Leader 评估并决定恢复路径：
+
+| 状态 | 触发条件 | 恢复路径 | 执行者 |
+|------|---------|---------|--------|
+| failed | retries >= max_retries（默认 2，可在 task YAML 或 run-config.yaml 中覆盖） | Leader 评估：① 重置 retries=0 + status=pending 重新分配，或 ② 标 blocked 等人工介入。必须记录 decisions.md | Leader |
+| blocked | 外部依赖不可用 | 阻塞条件解除后 Leader 重置为 pending。记录 decisions.md | Leader |
+| timeout | 单任务执行超时 | 同 failed 处理。Leader 分析超时原因，必要时拆分 CR 降低粒度 | Leader |
+
+**铁律**：
+- 恢复操作**必须由 Leader 执行**，其他角色不可自行恢复
+- 每次恢复操作**必须记录 decisions.md**（包含原因、恢复路径、风险评估）
+- `max_retries` 优先级：task YAML `max_retries` 字段 > run-config.yaml `max_retries_per_task` > 默认值 2
 
 ### 6.2.1 Hotfix 快速通道
 
@@ -256,7 +326,7 @@ Hotfix 是紧急修复的快速通道，用于线上紧急 bug 或实机调试�
 | 需求分析 | Analyst 完整深化 | 简化，使用 `fix_description` 替代 `design` |
 | verify 脚本 | Analyst 生成独立脚本 | 使用 `verification` 字段描述验证方式 |
 | Reviewer 审查 | 完整代码审查 | 仍需审查，但可简化 |
-| Phase 门控 | 严格状态检查 | 跳过状态检查（见 `phase-gate.py`） |
+| Phase 门控 | 严格状态检查 | Phase 3→3.5 和 3.5→4 跳过该 hotfix CR 的状态检查（`phase-gate.py` 中 `type=="hotfix"` 时 `continue`），Phase 4→5 仅检查 status=PASS + done_evidence 非空 |
 | done_evidence | 必须填写 | 必须填写 |
 
 **适用场景**：
@@ -287,8 +357,19 @@ iterate-mode 下，每次迭代开始时记录基线（测试通过数、lint �
 
 需求深化维度（功能行为、用户体验、数据影响、性能要求、安全影响、集成影响）及详细确认流程，详见运行时 `.claude/CLAUDE.md` 中的 Analyst 协议（由 `CLAUDE-framework.md.tmpl` 生成）。
 
-> **说明**：此处 6 维度用于需求深化（与用户逐维度确认需求细节），
-> 与 P1 中的 8 维度检查是不同体系。6 维度面向需求补全，8 维度面向 CR 拆分后的覆盖验证。
+### 7.3 需求深化 6 维度与 CR 覆盖 8 维度的关系
+
+框架使用两套维度体系，分别作用于不同阶段，容易混淆但用途完全不同：
+
+| 对比项 | 需求深化 6 维度 | CR 覆盖 8 维度 |
+|--------|---------------|---------------|
+| 使用阶段 | Phase 1b（需求深化） | Phase 2（任务拆分后） |
+| 目的 | 与用户逐维度确认需求细节，补全遗漏 | 验证 CR 拆分的覆盖完整性 |
+| 执行者 | Analyst + 用户 | Analyst 自检 |
+| 维度列表 | 功能行为、用户体验、数据影响、性能要求、安全影响、集成影响 | 功能完整性、用户体验、健壮性、可观测性、可配置性、性能、安全、可测试性 |
+| 产出 | 补全后的 requirement-spec.md | 维度覆盖矩阵（每个维度关联到具体 CR） |
+
+6 维度面向需求补全（输入完整性），8 维度面向 CR 覆盖验证（输出完整性）。
 
 ### 7.2 任务拆分标准
 
@@ -369,7 +450,7 @@ Phase 0 完成后冻结。切片开发阶段只能扩展不能修改。
 | **done_evidence** | 验收证据归档，由 Verifier 填写 | — |
 | **verify 脚本** | 验收脚本（verify/CR-xxx.py），由 Analyst 生成 | L0 脚本 |
 | **rework / PASS** | 返工 / 终态成功，由 Verifier/Reviewer 标记 | — |
-| **轻量迭代模式 (lightweight)** | [实验性] 合并 Phase 3.5+4（Verify+Review 由同一 Agent 执行），需在 decisions.md 中声明 | standard 模式 |
+| **轻量迭代模式 (lightweight)** | 合并 Phase 3.5+4（Verify+Review 由同一 Agent 执行）。启用条件：CR≤5 或全为 enhancement/bug_fix，且无 P0 任务。D/E 维度降级（详见 ADR-013）。需在 decisions.md 中声明 | standard 模式 |
 
 > **Feature ID 命名空间说明**：feature-checklist 使用 `F001` 格式（init-mode 专用，无连字符），task ID 使用 `F-001` 格式（通用 CR，含连字符），两者命名空间独立。
 

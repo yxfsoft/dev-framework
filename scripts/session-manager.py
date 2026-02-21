@@ -64,7 +64,11 @@ def cmd_status(project_dir: Path) -> None:
         print("无 session 状态文件。请先运行 init-project.py 或 init-iteration.py。")
         return
 
-    state = json.loads(state_path.read_text(encoding="utf-8"))
+    try:
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as e:
+        print(f"ERROR: session-state.json 读取/解析失败: {e}")
+        return
 
     print(f"Session: {state.get('session_id', '?')}")
     print(f"迭代: {state.get('current_iteration', '?')}")
@@ -189,11 +193,25 @@ def cmd_checkpoint(project_dir: Path) -> None:
 
     # FIX-20: Update context-snapshot.md if it exists
     # M3: 统一使用 dev_state / "context-snapshot.md" 作为快照路径
+    # 注意：checkpoint 使用简化版格式（自动生成的进度摘要），
+    # 完整模板格式（含技术上下文、决策等）由 Agent 手动更新维护。
     snapshot_path = dev_state / "context-snapshot.md"
     if snapshot_path.exists():
         completed_list = ", ".join(t.get("id", "?") for t in completed_tasks) or "无"
         in_progress_list = ", ".join(t.get("id", "?") for t in in_progress_tasks) or "无"
         pending_list = ", ".join(t.get("id", "?") for t in pending_tasks) or "无"
+
+        # Verifier/Reviewer 状态统计
+        ready_verify = [t for t in tasks if t.get("status") == "ready_for_verify"]
+        ready_review = [t for t in tasks if t.get("status") == "ready_for_review"]
+        rework_tasks = [t for t in tasks if t.get("status") == "rework"]
+        failed_tasks = [t for t in tasks if t.get("status") == "failed"]
+        blocked_tasks = [t for t in tasks if t.get("status") == "blocked"]
+
+        ready_verify_list = ", ".join(t.get("id", "?") for t in ready_verify) or "无"
+        ready_review_list = ", ".join(t.get("id", "?") for t in ready_review) or "无"
+        rework_list = ", ".join(t.get("id", "?") for t in rework_tasks) or "无"
+
         snapshot_content = (
             f"# 当前上下文快照\n"
             f"> 最后更新: {now}\n\n"
@@ -205,8 +223,13 @@ def cmd_checkpoint(project_dir: Path) -> None:
             f"- 已完成: {completed_list}\n"
             f"- 进行中: {in_progress_list}\n"
             f"- 待开始: {pending_list}\n\n"
+            f"## Verifier/Reviewer 状态\n"
+            f"- 等待验收 (ready_for_verify): {ready_verify_list}\n"
+            f"- 等待审查 (ready_for_review): {ready_review_list}\n"
+            f"- 返工中 (rework): {rework_list}\n"
+            f"- 失败 (failed): {len(failed_tasks)} | 阻塞 (blocked): {len(blocked_tasks)}\n\n"
             f"## 下一步\n"
-            f"- (由 checkpoint 自动更新)\n"
+            f"- (由 checkpoint 自动更新，详细上下文由 Agent 手动维护)\n"
         )
         snapshot_path.write_text(snapshot_content, encoding="utf-8")
 

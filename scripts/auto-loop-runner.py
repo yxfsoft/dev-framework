@@ -90,8 +90,8 @@ def _build_prompt(project_dir: Path, iteration_id: str) -> str:
 
 def preflight_check(
     project_dir: Path, iteration_id: str, dev_state: Path
-) -> list[str]:
-    """启动前检查，返回错误列表（空列表表示通过）。"""
+) -> tuple[list[str], dict | None]:
+    """启动前检查，返回 (错误列表, config)。错误列表为空表示通过。config 供后续使用，避免重复加载。"""
     errors = []
 
     # 检查 claude CLI 可用
@@ -121,7 +121,7 @@ def preflight_check(
     else:
         errors.append("无法读取 run-config.yaml")
 
-    return errors
+    return errors, config
 
 
 def _update_session_after_run(project_dir: Path, claude_failed: bool, progress_delta: int) -> None:
@@ -174,8 +174,8 @@ def run_auto_loop(
     print(f"  最大重启次数: {max_restarts}")
     print()
 
-    # Preflight
-    errors = preflight_check(project_dir, iteration_id, dev_state)
+    # Preflight（返回 config 以避免重复加载）
+    errors, config = preflight_check(project_dir, iteration_id, dev_state)
     if errors:
         print("[PREFLIGHT FAILED]")
         for e in errors:
@@ -183,9 +183,6 @@ def run_auto_loop(
         return False
     print("[PREFLIGHT] 检查通过")
     print()
-
-    # 复用 preflight_check 中已加载的 config，避免重复调用 load_run_config
-    config = load_run_config(project_dir)  # TODO: 未来可改为从 preflight_check 传参
     auto_loop_cfg = config.get("auto_loop", {}) if config else {}
     max_consecutive_failures = auto_loop_cfg.get("max_consecutive_failures", 3)
     claude_timeout = auto_loop_cfg.get("claude_timeout", 7200)
