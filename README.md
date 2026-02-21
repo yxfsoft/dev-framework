@@ -329,8 +329,9 @@ python dev-framework/scripts/upgrade-project.py \
 | 文档 | 内容 |
 |------|------|
 | [FRAMEWORK-SPEC.md](FRAMEWORK-SPEC.md) | 框架规格书（核心文档，完整流程定义） |
-| [ARCHITECTURE.md](ARCHITECTURE.md) | 架构决策记录（12 条 ADR） |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | 架构决策记录（13 条 ADR） |
 | [USER-GUIDE.md](USER-GUIDE.md) | 使用指导手册（场景示例 + FAQ） |
+| [框架全景分析报告](reports/framework-analysis.md) | 目录结构、文件关系图、流程图、状态机、脚本调用链（推荐首次阅读） |
 
 ---
 
