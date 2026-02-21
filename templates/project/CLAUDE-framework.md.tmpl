@@ -33,6 +33,7 @@
 - **状态目录**：`.claude/dev-state/`
 - **运行模式**：interactive（默认）/ auto-loop
 - **配置文件**：`.claude/dev-state/run-config.yaml`
+- **工具链**：测试/Lint 命令前缀由 `run-config.yaml` 中 `toolchain` 配置决定（`auto` 时自动检测：有 uv.lock → `uv run`，有 poetry.lock → `poetry run`，否则直接调用）
 
 ### 运行模式
 
@@ -1058,7 +1059,7 @@ Developer 不再直接运行 verify 脚本，也不可修改 verify 脚本。
 
 ```bash
 # 运行全量 L1 测试
-pytest tests/ -x -q
+{{TEST_RUNNER}} tests/ -x -q
 
 # 结果必须 ≥ 基线
 # 如果出现回归（新增失败），立即修复
@@ -1268,7 +1269,7 @@ Verifier 只负责执行。如果认为 verify 脚本有问题，在 CR notes �
 
 ```bash
 # 运行全量 L1 测试
-pytest tests/ -x -q
+{{TEST_RUNNER}} tests/ -x -q
 
 # 结果必须 ≥ 基线（.claude/dev-state/baseline.json）
 # 如果出现回归，标记 rework 并在 notes 中说明
@@ -1470,12 +1471,10 @@ Reviewer Agent 是质量的最后守门人。
 python .claude/dev-state/{iteration-id}/verify/CR-xxx.py
 
 # 运行 L2 集成测试
-pytest tests/integration/ -x -q
+{{TEST_RUNNER}} tests/integration/ -x -q
 
 # 运行全量 L1 回归测试
-pytest tests/ -x -q
-
-# 注：实际测试命令以 .claude/dev-state/run-config.yaml 中的 toolchain 配置为准
+{{TEST_RUNNER}} tests/ -x -q
 ```
 
 #### Step 4: 裁决
@@ -1746,7 +1745,7 @@ review_result:
 **执行者**: Verifier Agent
 **自动化**: `python <框架路径>/scripts/check-quality-gate.py --gate gate_4`
 **检查内容**:
-- [ ] `pytest tests/ -x -q` 全部通过
+- [ ] `{{TEST_RUNNER}} tests/ -x -q` 全部通过
 - [ ] passed 数 ≥ baseline.l1_passed
 - [ ] failed 数 = 0（或 ≤ baseline.l1_failed，即预存失败）
 

@@ -20,8 +20,13 @@ import json
 import os
 import shutil
 import stat
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
+
+# ── 框架内部导入 ──────────────────────────────────────────
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from fw_utils import detect_toolchain, load_run_config
 
 
 def get_framework_dir() -> Path:
@@ -459,6 +464,11 @@ def init_project(project_dir: Path, requirement_doc: str, tech_stack: str) -> No
                 fw_content = fw_tmpl.read_text(encoding="utf-8")
                 fw_content = fw_content.replace("{{FRAMEWORK_PATH}}", str(framework_dir))
                 fw_content = fw_content.replace("{{PROJECT_GOTCHAS}}", "<!-- 开发过程中发现的坑点和最佳实践，由 Developer Agent 自动维护 -->")
+                # 工具链命令替换
+                run_config_path = project_dir / ".claude" / "dev-state" / "run-config.yaml"
+                _config = load_run_config(project_dir) if run_config_path.exists() else {}
+                _toolchain = detect_toolchain(project_dir, _config)
+                fw_content = fw_content.replace("{{TEST_RUNNER}}", _toolchain["test_runner"])
                 dot_claude.write_text(fw_content, encoding="utf-8")
                 print(f"  生成: .claude/CLAUDE.md (v3.0 合并版运行时手册，追加模式)")
             else:
@@ -520,6 +530,11 @@ def init_project(project_dir: Path, requirement_doc: str, tech_stack: str) -> No
             fw_content = fw_tmpl.read_text(encoding="utf-8")
             fw_content = fw_content.replace("{{FRAMEWORK_PATH}}", str(framework_dir))
             fw_content = fw_content.replace("{{PROJECT_GOTCHAS}}", "<!-- 开发过程中发现的坑点和最佳实践，由 Developer Agent 自动维护 -->")
+            # 工具链命令替换
+            run_config_path = project_dir / ".claude" / "dev-state" / "run-config.yaml"
+            _config = load_run_config(project_dir) if run_config_path.exists() else {}
+            _toolchain = detect_toolchain(project_dir, _config)
+            fw_content = fw_content.replace("{{TEST_RUNNER}}", _toolchain["test_runner"])
             parts.append(fw_content)
 
         if parts:

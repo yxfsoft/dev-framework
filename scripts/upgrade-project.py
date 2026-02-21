@@ -42,6 +42,7 @@ from pathlib import Path
 # ── 框架内部导入 ──────────────────────────────────────────
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fw_utils import (
+    detect_toolchain,
     load_run_config,
     load_session_state,
     load_baseline,
@@ -1002,6 +1003,11 @@ def _generate_merged_claude_md_impl(ctx: UpgradeContext) -> MigrateResult:
     fw_content = fw_tmpl.read_text(encoding="utf-8")
     fw_content = fw_content.replace("{{FRAMEWORK_PATH}}", str(framework_dir))
     fw_content = fw_content.replace("{{PROJECT_GOTCHAS}}", gotchas_content)
+
+    # 工具链命令替换：根据项目实际工具链替换 {{TEST_RUNNER}}
+    config = load_run_config(ctx.project_dir)
+    toolchain = detect_toolchain(ctx.project_dir, config)
+    fw_content = fw_content.replace("{{TEST_RUNNER}}", toolchain["test_runner"])
 
     # 保留已有的项目配置部分（如果有）
     target_path = ctx.project_dir / ".claude" / "CLAUDE.md"
