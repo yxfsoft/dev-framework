@@ -892,6 +892,7 @@ L1: 267 passed (+29 new)
 ### 自动处理的迁移项（由升级脚本完成）
 
 - 从 `CLAUDE-framework.md.tmpl` 生成合并版 `.claude/CLAUDE.md`
+- 根据项目工具链自动替换测试命令（有 uv.lock → `uv run pytest`，有 poetry.lock → `poetry run pytest`，否则 `pytest`）
 - 保留现有 CLAUDE.md 中"已知坑点与最佳实践"的自定义内容
 - 创建初始 `context-snapshot.md`
 - 在 `run-config.yaml` 中添加 `snapshot` 配置块
