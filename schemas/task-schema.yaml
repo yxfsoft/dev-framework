@@ -1,5 +1,6 @@
 # 任务 YAML 格式规范
 # 所有任务文件必须符合此 schema
+# 注意：此文件仅作参考文档，框架运行时不执行 YAML Schema 校验。
 
 ---
 
@@ -9,13 +10,13 @@ required_fields:
   - type         # 任务类型
   - iteration    # 所属迭代 ID
   - title        # 任务标题（简短描述）
-  - priority     # 优先级（v2.6 FIX-09 新增）
+  - priority     # 优先级
   - design       # 技术方案（hotfix 类型豁免）
   - affected_files  # 受影响文件列表
   - acceptance_criteria  # 验收标准列表（hotfix 类型豁免）
   - status       # 当前状态
 
-# hotfix 类型豁免字段（v2.6）
+# hotfix 类型豁免字段
 # hotfix 为紧急修复快速通道，以下字段非必须:
 #   - design（hotfix 用 fix_description 替代）
 #   - acceptance_criteria（hotfix 用 verification 替代）
@@ -35,13 +36,13 @@ fields:
       - bug_fix         # Bug 修复
       - enhancement     # 功能增强
       - refactor        # 重构
-      - infrastructure  # 基础设施（无单独模板，使用通用任务格式）
-      - hotfix          # 紧急修复（v2.6 新增）
+      - infrastructure  # 基础设施（使用 feature.yaml.tmpl 作为基础模板，type 字段填 "infrastructure"）
+      - hotfix          # 紧急修复
     description: "任务类型"
 
   iteration:
     type: string
-    pattern: "^(iteration|iter)-\\d+$"
+    pattern: "^iter-\\d+$"
     description: "所属迭代 ID，统一使用 iter-N 格式（如 iter-0、iter-3）"
 
   priority:
@@ -51,7 +52,7 @@ fields:
       - P1    # 必须（本轮迭代必须完成）
       - P2    # 可选（资源允许时完成）
     default: "P1"
-    description: "任务优先级（v2.6 FIX-09 新增）"
+    description: "任务优先级"
 
   title:
     type: string
@@ -233,7 +234,7 @@ fields:
 
   decisions_ref:
     type: array
-    description: "关联的决策编号列表，详细内容见 decisions.md（v2.6 FIX-12 新增）"
+    description: "关联的决策编号列表，详细内容见 decisions.md"
     items: {type: string}
 
   review_result:
@@ -261,7 +262,7 @@ fields:
           properties:
             severity:
               type: string
-              enum: [critical, major, minor, info]
+              enum: [critical, high, medium, low]
             desc:
               type: string
             suggestion:
@@ -269,7 +270,7 @@ fields:
           required: [severity, desc]
         description: "审查发现的问题列表"
 
-  # hotfix 类型专用字段（v2.6）
+  # hotfix 类型专用字段
   fix_description:
     type: string
     description: "修复方案描述（hotfix 专用，替代 design 字段）"

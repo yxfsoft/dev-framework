@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
 """
-phase-gate.py — Phase 转换门控检查（FIX-02）
+phase-gate.py — Phase 转换门控检查
 
 在 Phase N → Phase N+1 转换时运行，检查前置条件是否满足。
 返回码 0 = 通过，非 0 = 阻断。
 
 用法:
     python dev-framework/scripts/phase-gate.py \
-        --project-dir "D:/project" \
+        --project-dir "<项目路径>" \
         --iteration-id "iter-1" \
         --from phase_2 --to phase_3
 
     # 强制跳过（需记录到 decisions.md）
     python dev-framework/scripts/phase-gate.py \
-        --project-dir "D:/project" \
+        --project-dir "<项目路径>" \
         --iteration-id "iter-1" \
         --from phase_2 --to phase_3 \
         --force
@@ -26,10 +26,32 @@ import json
 import sys
 from pathlib import Path
 
+# 添加 scripts 目录到 path 以导入 fw_utils
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from fw_utils import validate_manifest, PHASE_NUMS
+
 try:
     import yaml
 except ImportError:
     yaml = None  # type: ignore
+
+
+def check_phase_0_to_1(iter_dir: Path) -> list[str]:
+    """Phase 0→1: 检查环境就绪。"""
+    errors = []
+    manifest = iter_dir / "manifest.json"
+    if not manifest.exists():
+        errors.append("manifest.json 不存在，请先运行 init-iteration.py")
+    return errors
+
+
+def check_phase_1_to_2(iter_dir: Path) -> list[str]:
+    """Phase 1→2: 检查需求规格书存在。"""
+    errors = []
+    req_spec = iter_dir / "requirement-spec.md"
+    if not req_spec.exists():
+        errors.append("requirement-spec.md 不存在，需求深化尚未完成")
+    return errors
 
 
 def check_phase_2_to_3(iter_dir: Path) -> list[str]:
@@ -87,8 +109,16 @@ def check_phase_2_to_3(iter_dir: Path) -> list[str]:
     manifest = iter_dir / "manifest.json"
     if manifest.exists():
         data = json.loads(manifest.read_text(encoding="utf-8"))
+        # C2: 加载后校验 manifest 完整性（仅 WARN，不阻断）
+        m_errors = validate_manifest(data)
+        if m_errors:
+            for e in m_errors:
+                print(f"  [WARN] manifest 校验: {e}")
         if data.get("phase") != "phase_2":
-            errors.append(f"manifest.json phase={data.get('phase')}，预期 phase_2")
+            errors.append(
+                f"manifest.json phase={data.get('phase')}，预期 phase_2。"
+                "请确保已执行 phase-gate.py --from phase_1 --to phase_2"
+            )
 
     return errors
 
@@ -114,6 +144,10 @@ def check_phase_3_to_3_5(iter_dir: Path) -> list[str]:
             continue
         if not data:
             continue
+        # hotfix 类型走快速通道，跳过状态检查
+        task_type = data.get("type", "")
+        if task_type == "hotfix":
+            continue
         status = data.get("status", "pending")
         if status not in ("ready_for_verify", "ready_for_review", "PASS"):
             errors.append(f"{tf.name}: status={status}，预期 ready_for_verify 或更后的状态")
@@ -138,6 +172,10 @@ def check_phase_3_5_to_4(iter_dir: Path) -> list[str]:
             errors.append(f"{tf.name}: YAML 解析失败 — {e}")
             continue
         if not data:
+            continue
+        # hotfix 类型走快速通道，跳过状态检查
+        task_type = data.get("type", "")
+        if task_type == "hotfix":
             continue
         status = data.get("status", "pending")
         if status not in ("ready_for_review", "PASS"):
@@ -167,16 +205,30 @@ def check_phase_4_to_5(iter_dir: Path) -> list[str]:
         if not data:
             continue
         task_id = data.get("id", tf.stem)
+        # hotfix 类型走快速通道，仅检查 status==PASS
+        task_type = data.get("type", "")
+        if task_type == "hotfix":
+            if data.get("status", "pending") != "PASS":
+                errors.append(f"{task_id}: hotfix status={data.get('status')}，预期 PASS")
+            # hotfix 仍需 L1 基线回归通过
+            evidence = data.get("done_evidence")
+            if not evidence or (isinstance(evidence, dict) and not any(
+                evidence.get(field) for field in ("tests", "logs", "notes")
+            )):
+                errors.append(f"{task_id}: hotfix done_evidence 为空（需记录 L1 基线回归结果）")
+            continue
 
         # 检查 1：status 必须为 PASS
         status = data.get("status", "pending")
         if status != "PASS":
             errors.append(f"{task_id}: status={status}，预期 PASS")
 
-        # 检查 2：done_evidence 不得为空
+        # 检查 2：done_evidence 不得为空（tests/logs/notes 任一非空即可）
         evidence = data.get("done_evidence")
-        if not evidence or (isinstance(evidence, dict) and not evidence.get("tests")):
-            errors.append(f"{task_id}: done_evidence 为空或缺少 tests 字段")
+        if not evidence or (isinstance(evidence, dict) and not any(
+            evidence.get(field) for field in ("tests", "logs", "notes")
+        )):
+            errors.append(f"{task_id}: done_evidence 为空（tests/logs/notes 至少一项需非空）")
 
         # 检查 3：review_result 不得为空
         review = data.get("review_result")
@@ -192,18 +244,35 @@ def check_phase_4_to_5(iter_dir: Path) -> list[str]:
 
 
 def _update_manifest_phase(iter_dir: Path, new_phase: str) -> None:
-    """更新 manifest.json 中的 phase 字段。"""
+    """更新 manifest.json 中的 phase 字段，并同步更新 session-state.json。"""
     manifest = iter_dir / "manifest.json"
     if manifest.exists():
         data = json.loads(manifest.read_text(encoding="utf-8"))
+        # C2: 加载后校验 manifest 完整性（仅 WARN，不阻断）
+        m_errors = validate_manifest(data)
+        if m_errors:
+            for e in m_errors:
+                print(f"  [WARN] manifest 校验: {e}")
         data["phase"] = new_phase
         manifest.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
 
+    # 同步更新 session-state.json 的 current_phase
+    try:
+        session_state = iter_dir.parent / "session-state.json"
+        if session_state.exists():
+            state = json.loads(session_state.read_text(encoding="utf-8"))
+            state["current_phase"] = new_phase
+            session_state.write_text(json.dumps(state, indent=2, ensure_ascii=False), encoding="utf-8")
+    except (json.JSONDecodeError, OSError):
+        pass  # 非关键路径，静默跳过
+
 
 GATE_MAP = {
+    ("phase_0", "phase_1"): check_phase_0_to_1,
+    ("phase_1", "phase_2"): check_phase_1_to_2,
     ("phase_2", "phase_3"): check_phase_2_to_3,
     ("phase_3", "phase_3.5"): check_phase_3_to_3_5,
-    ("phase_3.5", "phase_4"): check_phase_3_5_to_4,   # 专用函数：检查验收完成
+    ("phase_3.5", "phase_4"): check_phase_3_5_to_4,
     ("phase_4", "phase_5"): check_phase_4_to_5,
 }
 
@@ -229,9 +298,49 @@ def main() -> int:
     checker = GATE_MAP.get(key)
 
     if not checker:
-        # M34: 明确输出放行信息
-        print(f"[PASS] {key[0]}→{key[1]}: 自动放行（无前置门控检查）")
-        return 0
+        # 解析 phase 数值用于判断方向
+        def _phase_num(p: str) -> float:
+            if not p.startswith("phase_"):
+                print(f"[ERROR] 无效的 Phase 格式: '{p}'，预期格式: phase_N 或 phase_N.5（如 phase_0, phase_3.5）")
+                return -1.0
+            s = p.replace("phase_", "")
+            if not s:
+                print(f"[ERROR] 无效的 Phase 格式: '{p}'，缺少阶段编号。预期格式: phase_N 或 phase_N.5")
+                return -1.0
+            try:
+                num = float(s)
+                if num not in PHASE_NUMS:
+                    print(f"[ERROR] 无效的 Phase 编号: '{p}'，合法值: {', '.join(f'phase_{v}' for v in PHASE_NUMS)}")
+                    return -1.0
+                return num
+            except ValueError:
+                print(f"[ERROR] 无效的 Phase 格式: '{p}'，'{s}' 不是有效数字。预期格式: phase_N 或 phase_N.5")
+                return -1.0
+
+        from_num = _phase_num(args.from_phase)
+        to_num = _phase_num(args.to_phase)
+
+        if from_num < 0 or to_num < 0:
+            return 1
+
+        if to_num < from_num:
+            # 回退操作：允许通过
+            print(f"[PASS] {key[0]}→{key[1]}: 回退操作，自动放行")
+            print(f"[WARN] 建议在 decisions.md 中记录回退原因")
+            _update_manifest_phase(iter_dir, args.to_phase)
+            return 0
+        else:
+            # 前进但无门控：检查是否为跳级（不允许跳过中间 Phase）
+            if from_num in PHASE_NUMS and to_num in PHASE_NUMS:
+                from_idx = PHASE_NUMS.index(from_num)
+                to_idx = PHASE_NUMS.index(to_num)
+                if to_idx - from_idx > 1:
+                    print(f"[BLOCKED] {key[0]}→{key[1]}: Phase 转换必须顺序执行，"
+                          f"不可跳过中间阶段。请先转换到 phase_{PHASE_NUMS[from_idx + 1]}")
+                    return 1
+            print(f"[WARN] {key[0]}→{key[1]}: 未找到对应门控检查，放行")
+            _update_manifest_phase(iter_dir, args.to_phase)
+            return 0
 
     errors = checker(iter_dir)
 

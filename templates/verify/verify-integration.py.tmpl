@@ -74,9 +74,9 @@ def check_l2_integration():
 
 
 def check_no_placeholders():
-    """检查无空实现占位（v2.6 FIX-14: 使用 Python 原生实现，兼容 Windows）"""
+    """检查无空实现占位（使用 Python 原生实现，兼容 Windows）"""
     print("\n[3/5] 空实现检查")
-    # 模板占位符，生成时替换为 Python 列表字面量，如 ["src/", "lib/"]
+    # {{SOURCE_DIRS}} 替换为 Python list 字面量，如 ["src/", "lib/"]
     source_dirs = {{SOURCE_DIRS}}  # noqa: 模板占位符
     keywords = ["TODO", "FIXME", "NotImplementedError", "pass  #"]
     findings = []
@@ -107,6 +107,7 @@ def check_git_diff():
     """检查变更范围"""
     print("\n[4/5] 变更范围检查")
     result = subprocess.run(
+        # {{BATCH_SIZE}} 替换为整数，如 5
         ["git", "diff", "--stat", "HEAD~{{BATCH_SIZE}}"],
         capture_output=True, text=True
     )

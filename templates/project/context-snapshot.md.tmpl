@@ -1,0 +1,29 @@
+# 当前上下文快照
+> 最后更新: {{TIMESTAMP}}
+
+## 状态
+- 模式: {{MODE}} | 迭代: {{ITERATION}} | 阶段: {{PHASE}}
+- 当前任务: {{TASK_ID}} ({{STATUS}}, step: {{CURRENT_STEP}})
+- 运行配置: toolchain={{TOOLCHAIN}}, iteration_mode={{ITERATION_MODE}}
+
+## 进度总览
+- 总计: {{TOTAL}} CR | 完成: {{COMPLETED}} | 进行中: {{IN_PROGRESS}} | 待开始: {{PENDING}}
+- 已完成: {{COMPLETED_LIST}}
+- 进行中: {{IN_PROGRESS_DETAIL}}
+- 待开始: {{PENDING_LIST}}
+- 依赖关系: {{DEPENDENCIES}}
+
+## 关键上下文
+- {{TECH_DECISIONS}}
+- {{FOUND_ISSUES}}
+- {{TECH_DETAILS}}
+- baseline: L1={{L1_PASSED}}passed/{{L1_FAILED}}failed, L2={{L2_PASSED}}passed
+
+## Verifier/Reviewer 状态
+- {{PENDING_VERIFY_LIST}}
+- {{REWORK_TASKS}}
+
+## 下一步
+1. {{NEXT_ACTION_1}}
+2. {{NEXT_ACTION_2}}
+3. {{NEXT_ACTION_3}}

@@ -1,6 +1,6 @@
 {
   "$schema": "Feature checklist format for init-mode",
-  "$description": "所有特性初始标记 FAIL，经验证后才能标记 PASS",
+  "$description": "所有特性初始标记 FAIL，经验证后才能标记 PASS。注意：此文件仅作参考文档，框架运行时不执行 JSON Schema 校验。",
 
   "format": {
     "project": "项目名称 (string)",
@@ -20,7 +20,7 @@
             "status": "FAIL | PASS"
           }
         ],
-        "verify_script": "{iteration-id}/verify/F001.py (验证脚本路径，位于迭代目录下)"
+        "verify_script": ".claude/dev-state/{iteration-id}/verify/F001.py (验证脚本路径，位于迭代目录下)"
       }
     ]
   },
@@ -51,7 +51,7 @@
           {"id": "F001-C5", "desc": "向量入库到 Milvus text_records", "status": "FAIL"},
           {"id": "F001-C6", "desc": "搜索 API 返回相关结果 (score>0.5)", "status": "FAIL"}
         ],
-        "verify_script": "iter-0/verify/F001.py"
+        "verify_script": ".claude/dev-state/iter-0/verify/F001.py"
       }
     ]
   }

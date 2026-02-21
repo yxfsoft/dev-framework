@@ -4,7 +4,7 @@ generate-report.py — 生成迭代报告
 
 用法:
     python dev-framework/scripts/generate-report.py \
-        --project-dir "D:/project" \
+        --project-dir "<项目路径>" \
         --iteration-id "iter-3"
 """
 
@@ -20,6 +20,9 @@ from pathlib import Path
 # 添加 scripts 目录到 path 以导入 fw_utils
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fw_utils import detect_toolchain, load_run_config, build_test_cmd
+
+# git 空树哈希，用作无提交时的 diff 基准
+_GIT_EMPTY_TREE = "4b825dc642cb6eb9a060e54bf899d15f7acb7299"
 
 try:
     import yaml
@@ -71,33 +74,40 @@ def generate_report(project_dir: Path, iteration_id: str) -> None:
     first_pass = sum(1 for t in tasks if t.get("status") == "PASS" and t.get("retries", 0) == 0)
     first_pass_rate = first_pass / total if total > 0 else 0
 
-    # git 统计
+    # git 统计（M14: 添加 timeout 和异常处理）
     git_stat_output = ""
     if total > 0:
-        # 获取实际提交数，避免 HEAD~N 超出历史范围
-        commit_count_result = subprocess.run(
-            ["git", "rev-list", "--count", "HEAD"],
-            capture_output=True, text=True, cwd=project_dir,
-            encoding="utf-8", errors="replace",
-        )
-        commit_count = 0
-        if commit_count_result.returncode == 0:
-            try:
-                commit_count = int(commit_count_result.stdout.strip())
-            except ValueError:
-                commit_count = 0
-        safe_n = min(total, max(commit_count - 1, 0))
-        if safe_n > 0:
-            git_diff_ref = f"HEAD~{safe_n}"
-        else:
-            # 只有一个或零个提交，使用空树作为对比基准
-            git_diff_ref = "4b825dc642cb6eb9a060e54bf899d15f7acb7299"
-        git_stat = subprocess.run(
-            ["git", "diff", "--stat", git_diff_ref],
-            capture_output=True, text=True, cwd=project_dir,
-            encoding="utf-8", errors="replace",
-        )
-        git_stat_output = git_stat.stdout.strip()
+        try:
+            # 获取实际提交数，避免 HEAD~N 超出历史范围
+            commit_count_result = subprocess.run(
+                ["git", "rev-list", "--count", "HEAD"],
+                capture_output=True, text=True, cwd=project_dir,
+                encoding="utf-8", errors="replace", timeout=30,
+            )
+            commit_count = 0
+            if commit_count_result.returncode == 0:
+                try:
+                    commit_count = int(commit_count_result.stdout.strip())
+                except ValueError:
+                    commit_count = 0
+            safe_n = min(total, max(commit_count - 1, 0))
+            if safe_n > 0:
+                git_diff_ref = f"HEAD~{safe_n}"
+            else:
+                # 只有一个或零个提交，使用空树作为对比基准
+                git_diff_ref = _GIT_EMPTY_TREE
+            git_stat = subprocess.run(
+                ["git", "diff", "--stat", git_diff_ref],
+                capture_output=True, text=True, cwd=project_dir,
+                encoding="utf-8", errors="replace", timeout=30,
+            )
+            git_stat_output = git_stat.stdout.strip()
+        except subprocess.TimeoutExpired:
+            git_stat_output = "(git 命令超时，跳过代码变更统计)"
+            print("  [WARN] git 命令超时（>30s），跳过代码变更统计")
+        except FileNotFoundError:
+            git_stat_output = "(git 未安装，跳过代码变更统计)"
+            print("  [WARN] git 未安装，跳过代码变更统计")
     else:
         git_stat_output = "(无任务，跳过 diff)"
 
@@ -183,7 +193,7 @@ def generate_report(project_dir: Path, iteration_id: str) -> None:
     exp_log = dev_state / "experience-log.md"
 
     exp_found = False
-    for src in [claude_md, dot_claude_md]:
+    for src in [dot_claude_md, claude_md]:
         if src.exists():
             content = src.read_text(encoding="utf-8")
             # 提取该章节（使用 find 替代 index 避免 ValueError）

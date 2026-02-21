@@ -1,11 +1,11 @@
 {
   "$schema": "Iteration manifest format",
-  "$description": "记录迭代的元信息，每个迭代目录下必须有一个 manifest.json",
+  "$description": "记录迭代的元信息，每个迭代目录下必须有一个 manifest.json。注意：此文件仅作参考文档，框架运行时不执行 JSON Schema 校验。完整 schema 定义见 schemas/manifest-schema.json。",
 
   "format": {
     "id": "迭代 ID (string, 格式: iter-N)",
     "mode": "运行模式 (string: init | iterate)",
-    "status": "迭代状态 (string: planning | in_progress | completed | aborted)",
+    "status": "迭代状态 (string: planning | active | in_progress | completed | aborted)",
     "created_at": "ISO 8601 时间戳",
     "requirement_summary": "需求简述 (string)",
     "phase": "当前阶段 (string: phase_0 ~ phase_5)",
@@ -13,7 +13,7 @@
   },
 
   "rules": {
-    "必须字段": "id, mode, status, created_at, requirement_summary 为必须字段",
+    "必须字段": "id, mode, status, created_at 为必须字段（requirement_summary 可选）",
     "id 格式": "必须与所在迭代目录名一致（如 iter-1/manifest.json 的 id 为 iter-1）",
     "状态流转": "planning → in_progress → completed 或 aborted",
     "phase 更新": "随迭代推进由 Leader Agent 更新"

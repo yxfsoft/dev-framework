@@ -1,0 +1,121 @@
+# 运行模式配置（项目实例）
+# 此文件由 init-project.py 复制到 .claude/dev-state/run-config.yaml
+# 完整字段定义与说明参见 schemas/run-config.yaml
+
+---
+
+# 运行模式
+mode: "interactive"   # interactive | auto-loop
+
+# ──────────────────────────────────────────────────
+# 工具链配置
+# ──────────────────────────────────────────────────
+toolchain:
+  # 测试运行器（自动检测优先级：uv > poetry > pip）
+  test_runner: "auto"          # "auto" | "uv run pytest" | "poetry run pytest" | "pytest"
+  # Lint 工具
+  linter: "auto"               # "auto" | "uv run ruff check ." | "ruff check ."
+  # 格式化工具
+  formatter: "auto"            # "auto" | "uv run ruff format --check ." | "ruff format --check ."
+  # Python 解释器（用于运行 verify 脚本）
+  python: "auto"               # "auto" | "uv run python" | "poetry run python" | "python"
+  # Lint 是否为强制检查（工具缺失时 true=FAIL, false=SKIP）
+  lint_required: false
+  # L1 单元测试目录路径（相对于项目根目录）
+  test_dir: "tests/unit/"
+
+# ──────────────────────────────────────────────────
+# 迭代模式
+# ──────────────────────────────────────────────────
+# [实验性] 当前仅文档层面支持。
+# lightweight 模式下 Leader 协议合并 Phase 3.5+4 执行，
+# 但 phase-gate.py 门控检查不变（仍强制执行所有转换检查）。
+# 可选值：
+#   "standard"    → 完整 5 Phase（Verify 和 Review 分开执行）
+#   "lightweight" → 合并 Phase 3.5（独立验收）+ Phase 4（Verify+Review 由同一 Agent 执行）
+#                   条件：CR 数 ≤ 5 或 all CR are enhancement/bug_fix
+# 注意：lightweight 模式必须在 decisions.md 中声明放弃了哪些检查
+iteration_mode: "standard"
+
+# ──────────────────────────────────────────────────
+# Git Hooks 配置
+# ──────────────────────────────────────────────────
+hooks:
+  commit_message_pattern: "default"
+  # "default"    → [模块] 动作：描述 (CR-xxx)
+  # "cr-suffix"  → 自由格式 (CR-xxx)    — CR 后缀必须有，格式不限
+  # "flexible"   → 完全自由格式          — 不做格式检查
+  # "custom"     → 用户自定义正则        — 见 commit_message_regex
+  commit_message_regex: ""  # 仅当 pattern=custom 时生效
+
+# ──────────────────────────────────────────────────
+# Interactive 模式参数
+# ──────────────────────────────────────────────────
+interactive:
+  # 编码后自动运行 verify 脚本（不等用户指令）
+  auto_verify: true
+
+  # 自动运行测试（不等用户指令）
+  auto_test: true
+
+  # 自动 git commit（设为 false 时需用户确认）
+  auto_commit: false
+
+  # 必须暂停等待用户确认的节点
+  pause_points:
+    - requirement_approval     # 需求规格书确认
+    - task_plan_approval       # 任务拆分确认
+    - review_result            # 审查结果通报
+    - iteration_complete       # 迭代完成汇总
+
+# ──────────────────────────────────────────────────
+# Auto Loop 模式参数
+# ──────────────────────────────────────────────────
+# 注意：run-baseline.py 生成的 baseline.json 中，E2E 相关字段（如 e2e_passed、
+# e2e_total 等）为可选字段，未配置 E2E 测试的项目可忽略。
+auto_loop:
+  # 单任务最大重试次数（L0/L1 失败时重试）
+  max_retries_per_task: 2
+
+  # 最大并行 Agent 数
+  max_parallel_agents: 2
+
+  # 审查失败后是否停止整个循环
+  stop_on_review_fail: true
+
+  # 检查点写入频率
+  # per_task: 每完成一个任务写一次
+  # per_batch: 每完成一批任务写一次
+  checkpoint_frequency: "per_task"
+
+  # 连续失败 N 次后停止整个循环
+  max_consecutive_failures: 3
+
+  # 单任务执行超时（秒）
+  timeout_per_task: 1800
+
+  # 进度报告间隔（秒，写入 checkpoint）
+  report_interval: 300
+
+  # 磁盘空间安全阈值（MB）
+  min_disk_mb: 100
+
+  # Claude 单次执行超时（秒）
+  claude_timeout: 7200
+
+  # 连续无进展重启阈值
+  no_progress_threshold: 3
+
+  # Claude CLI 命令路径（默认 "claude"，可配置为绝对路径）
+  claude_command: "claude"
+
+# ──────────────────────────────────────────────────
+# 上下文快照配置（v3.0 新增）
+# ──────────────────────────────────────────────────
+# [v3.1 计划] 以下配置当前由 Agent 协议驱动，脚本层面尚未实现
+# 自动读取此配置。此处预留供 v3.1 脚本化支持。
+snapshot:
+  # 是否启用滚动快照
+  enabled: true
+  # 更新频率: per_step(每个 CR step 后) | per_task(每个 CR 完成后)
+  update_frequency: "per_step"

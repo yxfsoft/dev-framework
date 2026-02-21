@@ -24,18 +24,15 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+# 添加 scripts 目录到 path 以导入 fw_utils
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from fw_utils import PHASE_ORDER
+
 try:
     import yaml
 except ImportError:
     print("ERROR: PyYAML 未安装。运行: pip install PyYAML>=6.0")
     sys.exit(1)
-
-
-# Phase 状态机
-PHASE_ORDER = [
-    "phase_0", "phase_1", "phase_2",
-    "phase_3", "phase_3.5", "phase_4", "phase_5",
-]
 
 
 def validate_phase_transition(current: str, target: str) -> tuple[bool, str]:
@@ -119,7 +116,11 @@ def cmd_checkpoint(project_dir: Path) -> None:
     existing = sorted(cp_dir.glob("cp-*.md"))
     if existing:
         import re as _re
-        nums = [int(m.group(1)) for f in existing if (m := _re.search(r"cp-(\d+)", f.stem))]
+        nums = []
+        for f in existing:
+            m = _re.search(r"cp-(\d+)", f.stem)
+            if m:
+                nums.append(int(m.group(1)))
         next_num = max(nums) + 1 if nums else 1
     else:
         next_num = 1
@@ -171,6 +172,44 @@ def cmd_checkpoint(project_dir: Path) -> None:
     # 更新 session-state
     state["last_checkpoint"] = f"{cp_name}.md"
     state["last_updated"] = now
+
+    # FIX-20: Re-count task progress from task files
+    count_completed = len(completed_tasks)
+    count_in_progress = len(in_progress_tasks)
+    count_pending = len(pending_tasks)
+    count_rework = sum(1 for t in tasks if t.get("status") == "rework")
+    count_failed = sum(1 for t in tasks if t.get("status") == "failed")
+    state.setdefault("progress", {})
+    state["progress"]["total_tasks"] = len(tasks)
+    state["progress"]["completed"] = count_completed
+    state["progress"]["in_progress"] = count_in_progress
+    state["progress"]["pending"] = count_pending
+    state["progress"]["rework"] = count_rework
+    state["progress"]["failed"] = count_failed
+
+    # FIX-20: Update context-snapshot.md if it exists
+    # M3: 统一使用 dev_state / "context-snapshot.md" 作为快照路径
+    snapshot_path = dev_state / "context-snapshot.md"
+    if snapshot_path.exists():
+        completed_list = ", ".join(t.get("id", "?") for t in completed_tasks) or "无"
+        in_progress_list = ", ".join(t.get("id", "?") for t in in_progress_tasks) or "无"
+        pending_list = ", ".join(t.get("id", "?") for t in pending_tasks) or "无"
+        snapshot_content = (
+            f"# 当前上下文快照\n"
+            f"> 最后更新: {now}\n\n"
+            f"## 状态\n"
+            f"- 模式: {state.get('mode', '?')} | 迭代: {iteration_id} | 阶段: {state.get('current_phase', '?')}\n"
+            f"- 当前任务: {state.get('current_task', '无')}\n\n"
+            f"## 进度总览\n"
+            f"- 总计: {len(tasks)} CR | 完成: {count_completed} | 进行中: {count_in_progress} | 待开始: {count_pending}\n"
+            f"- 已完成: {completed_list}\n"
+            f"- 进行中: {in_progress_list}\n"
+            f"- 待开始: {pending_list}\n\n"
+            f"## 下一步\n"
+            f"- (由 checkpoint 自动更新)\n"
+        )
+        snapshot_path.write_text(snapshot_content, encoding="utf-8")
+
     state_path.write_text(json.dumps(state, indent=2, ensure_ascii=False), encoding="utf-8")
 
     print(f"检查点已写入: {cp_path}")

@@ -4,7 +4,7 @@ run-baseline.py — 运行基线测试并记录结果
 
 用法:
     python dev-framework/scripts/run-baseline.py \
-        --project-dir "D:/existing-project" \
+        --project-dir "<项目路径>" \
         --iteration-id "iter-3"
 
 执行后更新:
@@ -20,7 +20,7 @@ from pathlib import Path
 
 # 添加 scripts 目录到 path 以导入 fw_utils
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fw_utils import parse_pytest_output, detect_toolchain, load_run_config, build_test_cmd, build_lint_cmd
+from fw_utils import detect_toolchain, load_run_config, build_test_cmd, build_lint_cmd, parse_pytest_output
 
 
 def run_baseline(project_dir: Path, iteration_id: str) -> None:
@@ -50,14 +50,18 @@ def run_baseline(project_dir: Path, iteration_id: str) -> None:
         errors="replace",
     )
     git_commit = ""
-    if git_result.returncode == 0 and git_result.stdout:
-        git_commit = git_result.stdout.strip().split(" ")[0]
+    if git_result.returncode == 0 and git_result.stdout and git_result.stdout.strip():
+        parts = git_result.stdout.strip().split(" ", 1)
+        git_commit = parts[0] if parts else ""
+    elif git_result.returncode != 0:
+        print(f"  WARN  git log 命令失败（returncode={git_result.returncode}），跳过 git commit 记录")
 
-    # 运行 L1 单元测试
+    # 运行 L1 单元测试（M11: 从 config 读取 test_dir）
     print("[1/3] 运行 L1 单元测试...")
-    unit_dir = project_dir / "tests" / "unit"
+    test_dir_rel = config.get("toolchain", {}).get("test_dir", config.get("test_dir", "tests/unit/"))
+    unit_dir = project_dir / test_dir_rel
     if unit_dir.exists():
-        l1_cmd = build_test_cmd(toolchain, "tests/unit/", ["-q", "--tb=no"])
+        l1_cmd = build_test_cmd(toolchain, test_dir_rel, ["-q", "--tb=no"])
         l1_result = subprocess.run(
             l1_cmd,
             capture_output=True,
@@ -73,7 +77,7 @@ def run_baseline(project_dir: Path, iteration_id: str) -> None:
     else:
         l1_parsed = {"passed": 0, "failed": 0, "skipped": 0}
         l1_output = ""
-        print("  L1: N/A - 未找到测试目录 (tests/unit/)")
+        print(f"  L1: N/A - 未找到测试目录 ({test_dir_rel})")
 
     # 运行 L2 集成测试
     print("[2/3] 运行 L2 集成测试...")
@@ -120,7 +124,7 @@ def run_baseline(project_dir: Path, iteration_id: str) -> None:
     pre_existing = []
     if l1_parsed["failed"] > 0 and unit_dir.exists():
         # 重新运行获取失败的测试名
-        detail_cmd = build_test_cmd(toolchain, "tests/unit/", ["-q", "--tb=line"])
+        detail_cmd = build_test_cmd(toolchain, test_dir_rel, ["-q", "--tb=line"])
         detail_result = subprocess.run(
             detail_cmd,
             capture_output=True,
@@ -149,12 +153,13 @@ def run_baseline(project_dir: Path, iteration_id: str) -> None:
             "l1_skipped": l1_parsed["skipped"],
             "l2_passed": l2_parsed["passed"],
             "l2_failed": l2_parsed["failed"],
+            "l2_skipped": l2_parsed["skipped"],
         },
         "lint_clean": lint_clean,
         "pre_existing_failures": pre_existing,
     }
     if not unit_dir.exists():
-        baseline["l1_note"] = "N/A - 未找到测试目录 (tests/unit/)"
+        baseline["l1_note"] = f"N/A - 未找到测试目录 ({test_dir_rel})"
 
     baseline_path = dev_state / "baseline.json"
     baseline_path.write_text(json.dumps(baseline, indent=2, ensure_ascii=False), encoding="utf-8")

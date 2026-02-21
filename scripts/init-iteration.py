@@ -4,12 +4,12 @@ init-iteration.py — 在已有项目中初始化新一轮迭代
 
 用法:
     python dev-framework/scripts/init-iteration.py \
-        --project-dir "D:/existing-project" \
+        --project-dir "<项目路径>" \
         --requirement "修复搜索超时；新增批量导入" \
         --iteration-id "iter-3"
 
 执行后在项目中新增:
-    .claude/dev-state/iteration-{id}/
+    .claude/dev-state/iter-{id}/
         ├── manifest.json
         ├── requirement-raw.md
         ├── tasks/
@@ -20,8 +20,13 @@ init-iteration.py — 在已有项目中初始化新一轮迭代
 
 import argparse
 import json
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
+
+# 添加 scripts 目录到 path 以导入 fw_utils
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from fw_utils import validate_manifest
 
 
 def check_stale_iterations(dev_state_dir: Path):
@@ -43,8 +48,8 @@ def check_stale_iterations(dev_state_dir: Path):
                     tasks = list(tasks_dir.glob("*.yaml")) if tasks_dir.exists() else []
                     if not tasks:
                         print(f"  [WARN] 发现空迭代 {d.name}（phase_0，无任务），建议删除")
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"  [WARN] manifest.json 解析失败 ({d.name}): {e}")
         # 检测命名不一致（iteration-0 是 init-project 生成的旧命名，保留兼容）
         if d.name.startswith("iteration-") and not d.name == "iteration-0":
             print(f"  [WARN] 发现旧命名格式 {d.name}，建议统一为 iter-N 格式")
@@ -96,6 +101,11 @@ def init_iteration(
         "phase": "phase_0",
         "last_checkpoint": "",
     }
+    # C2: 写入前校验 manifest 完整性（仅 WARN，不阻断）
+    errors = validate_manifest(manifest)
+    if errors:
+        for e in errors:
+            print(f"  [WARN] manifest 校验: {e}")
     manifest_path = iter_dir / "manifest.json"
     manifest_path.write_text(
         json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8"

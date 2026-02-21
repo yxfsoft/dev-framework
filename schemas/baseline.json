@@ -1,6 +1,6 @@
 {
   "$schema": "Baseline test result format",
-  "$description": "记录迭代开始时的测试基线，后续改动不可低于此基线",
+  "$description": "记录迭代开始时的测试基线，后续改动不可低于此基线。注意：此文件仅作参考文档，框架运行时不执行 JSON Schema 校验。",
 
   "format": {
     "iteration": "迭代 ID (string)",

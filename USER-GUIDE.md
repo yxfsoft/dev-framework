@@ -1,6 +1,6 @@
 # Dev-Framework 使用指导手册
 
-> 版本: v2.6 | 更新日期: 2026-02-20
+> 版本: v3.0 | 更新日期: 2026-02-21
 
 > **路径约定**：本文档中的 `dev-framework/scripts/` 指框架仓库的 scripts 目录。
 > 如果框架不在项目子目录下，请替换为框架的实际安装路径（如 `D:/tools/dev-framework/scripts/`）。
@@ -51,9 +51,11 @@
 #### Step 2：初始化项目
 
 ```bash
+# Windows 示例路径: "D:/my-new-app"
+# macOS/Linux 示例路径: "/home/user/my-new-app"
 python dev-framework/scripts/init-project.py \
-    --project-dir "D:/my-new-app" \
-    --requirement-doc "D:/my-new-app/docs/requirements.md" \
+    --project-dir "<项目路径>" \
+    --requirement-doc "<项目路径>/docs/requirements.md" \
     --tech-stack "python,fastapi,vue"
 ```
 
@@ -66,14 +68,13 @@ python dev-framework/scripts/init-project.py \
 **执行后产物：**
 
 ```
-D:/my-new-app/
+<项目路径>/
 ├── .claude/
-│   ├── agents/           ← 5 个角色协议（从框架 agents/ 目录复制）
 │   ├── dev-state/
 │   │   ├── session-state.json   ← current_phase: "phase_0"
 │   │   ├── baseline.json        ← 空基线（L1=0, L2=0）
 │   │   ├── run-config.yaml      ← 运行模式配置
-│   │   ├── experience-log.md    # v2.6 已废弃，历史数据保留但不再由框架主动更新。新经验记录请使用 CLAUDE.md 的「已知坑点与最佳实践」章节
+│   │   ├── experience-log.md    # 已废弃，历史数据保留。新经验记录请使用 CLAUDE.md 的「已知坑点与最佳实践」章节
 │   │   └── iter-0/              ← 首次开发 = 第 0 轮迭代
 │   │       ├── manifest.json    ← mode: "init"
 │   │       ├── requirement-raw.md
@@ -81,14 +82,13 @@ D:/my-new-app/
 │   │       ├── verify/
 │   │       ├── checkpoints/
 │   │       └── decisions.md
-│   └── CLAUDE.md          ← ⚠️ 有占位符需要手动填写
+│   └── CLAUDE.md          ← v3.0 合并版运行时手册 + 项目配置（⚠️ 有占位符需手动填写）
 ├── ARCHITECTURE.md
 ├── config/default.yaml
 ├── tests/unit/
 ├── tests/integration/
 └── docs/
 ```
-<!-- 同步修改点：README.md / USER-GUIDE.md / FRAMEWORK-SPEC.md -->
 
 #### Step 3：填写 CLAUDE.md
 
@@ -110,7 +110,10 @@ D:/my-new-app/
 
 在项目目录下启动 Claude Code，输入：
 
-> 请按照 .claude/agents/leader.md 的协议，以 init-mode 启动开发流程。需求文档在 docs/requirements.md。
+> 请以 init-mode 启动开发流程。需求文档在 docs/requirements.md。
+
+> **v3.0 说明**：`.claude/CLAUDE.md` 已包含完整的框架运行时手册（含所有 Agent 协议），
+> 作为系统提示自动加载，无需手动指定 agent 文件路径。
 
 Claude 会按以下流程自动执行：
 
@@ -119,10 +122,14 @@ Phase 0  环境初始化 → 项目骨架 + 基础设施
 Phase 1  读需求 → 成熟度评估 → 交互确认 → 需求规格书
 Phase 2  架构设计 → 基础设施拆分 + 垂直切片拆分 → verify 脚本
 Phase 3  编码（基础设施批次 → 切片批次）
-Phase 3.5（独立验收）Verifier 验收
+Phase 3.5（独立验收）Verifier 验收    ← Phase 3 与 Phase 4 之间的子阶段，非独立阶段
 Phase 4  Reviewer 代码审查
 Phase 5  全量测试 → 迭代报告 → git push
 ```
+
+> **Phase 3.5 说明**：Phase 3.5 是 Phase 3（开发）和 Phase 4（审查）之间的"独立验收"子阶段，
+> 不是独立的第 8 个阶段。框架共有 Phase 0-5 共六个主阶段，Phase 3.5 是 Phase 3 完成后、
+> Phase 4 开始前的验收环节，由 Verifier Agent 独立执行 L0 验收并收集证据。
 
 ---
 
@@ -130,10 +137,10 @@ Phase 5  全量测试 → 迭代报告 → git push
 
 ```bash
 # 需求文档只有一句话：
-echo "做一个个人知识库搜索工具" > D:/knowledge-search/docs/requirements.md
+echo "做一个个人知识库搜索工具" > <项目路径>/docs/requirements.md
 
 python dev-framework/scripts/init-project.py \
-    --project-dir "D:/knowledge-search" \
+    --project-dir "<项目路径>" \
     --requirement-doc "docs/requirements.md" \
     --tech-stack "python,fastapi,sqlite,vue"
 ```
@@ -210,7 +217,7 @@ Analyst 评估为**高成熟度**，建议走**路径 A**（直接拆分），�
 
 ```bash
 python dev-framework/scripts/init-iteration.py \
-    --project-dir "D:/knowledge-search" \
+    --project-dir "<项目路径>" \
     --requirement "搜索结果高亮关键词；新增标签管理功能" \
     --iteration-id "iter-2"
 ```
@@ -240,7 +247,7 @@ python dev-framework/scripts/init-iteration.py \
 
 ```bash
 python dev-framework/scripts/run-baseline.py \
-    --project-dir "D:/knowledge-search" \
+    --project-dir "<项目路径>" \
     --iteration-id "iter-2"
 ```
 
@@ -254,8 +261,7 @@ python dev-framework/scripts/run-baseline.py \
 #### Step 3：启动 Claude Code
 
 ```
-请按照 .claude/agents/leader.md 的协议，以 iterate-mode 继续开发。
-当前迭代是 iter-2。
+请以 iterate-mode 继续开发。当前迭代是 iter-2。
 ```
 
 ---
@@ -264,7 +270,7 @@ python dev-framework/scripts/run-baseline.py \
 
 ```bash
 python dev-framework/scripts/init-iteration.py \
-    --project-dir "D:/knowledge-search" \
+    --project-dir "<项目路径>" \
     --requirement "搜索太慢了" \
     --iteration-id "iter-3"
 ```
@@ -281,7 +287,7 @@ Analyst 会：
 
 ```bash
 python dev-framework/scripts/init-iteration.py \
-    --project-dir "D:/knowledge-search" \
+    --project-dir "<项目路径>" \
     --requirement "优化搜索性能：1.加查询缓存 2.混合检索权重可配置 3.搜索结果分页" \
     --iteration-id "iter-3"
 ```
@@ -293,7 +299,7 @@ Analyst 评估为**中成熟度**——有明确的三个改动点，但缺少�
 
 ```bash
 python dev-framework/scripts/init-iteration.py \
-    --project-dir "D:/knowledge-search" \
+    --project-dir "<项目路径>" \
     --requirement "$(cat <<'EOF'
 ## 搜索性能优化
 
@@ -335,7 +341,7 @@ Analyst 评估为**高成熟度**，直接走路径 A。可能只补充一些边
 
 ```bash
 python dev-framework/scripts/init-project.py \
-    --project-dir "D:/legacy-crm" \
+    --project-dir "<项目路径>" \
     --requirement-doc "docs/handover-notes.md" \
     --tech-stack "java,spring-boot,mysql,vue"
 ```
@@ -355,7 +361,7 @@ python dev-framework/scripts/init-project.py \
 
 ```bash
 python dev-framework/scripts/run-baseline.py \
-    --project-dir "D:/legacy-crm" \
+    --project-dir "<项目路径>" \
     --iteration-id "iter-0"
 ```
 
@@ -365,7 +371,7 @@ python dev-framework/scripts/run-baseline.py \
 
 ```bash
 python dev-framework/scripts/init-iteration.py \
-    --project-dir "D:/legacy-crm" \
+    --project-dir "<项目路径>" \
     --requirement "修复客户列表分页 bug；新增按区域筛选" \
     --iteration-id "iter-1"
 ```
@@ -373,7 +379,7 @@ python dev-framework/scripts/init-iteration.py \
 然后启动 Claude Code：
 
 ```
-请按照 .claude/agents/leader.md 的协议，以 iterate-mode 开始开发。
+请以 iterate-mode 开始开发。
 这是一个我接手的项目，首次使用框架管理。请先仔细阅读项目代码了解现状。
 当前迭代是 iter-1。
 ```
@@ -382,7 +388,25 @@ Analyst 会花更多时间在 Phase 1 读代码理解现状，然后再做需求
 
 ---
 
+## 四点五、场景 D: 紧急修复（Hotfix）
+
+当用户声明"紧急修复"或"调试"时，可使用 hotfix 快速通道：
+
+- **不需要** Analyst 分析和 verify 脚本
+- Leader 执行**简化审查**（仅检查基线回归 + 变更范围合理）
+- **必须**满足：
+  1. L1 基线回归通过
+  2. 在 decisions.md 中记录修复原因
+- 使用 hotfix 模板创建任务：`templates/tasks/hotfix.yaml.tmpl`
+- 详细规则参见 FRAMEWORK-SPEC §6.2.1
+
+---
+
 ## 五、Interactive 模式 vs Auto Loop 模式
+
+> **v3.0 说明**：Agent 协议和质量门控规则已合并到 `.claude/CLAUDE.md` 中，
+> 作为系统提示自动加载。无论 Interactive 还是 Auto Loop 模式，
+> 都**不需要**手动加载 Agent 协议文件。
 
 ### Interactive 模式（默认）
 
@@ -432,6 +456,8 @@ auto_loop:
 | 连续失败 | 3 次 | 生成诊断报告，等你处理 |
 | 基线退化 | 任何退化 | 立即停止 + 回退建议 |
 | 单任务超时 | 30 分钟 | 标记 timeout，跳过继续 |
+| 磁盘空间不足 | 100MB（可配置） | 停止，释放空间后重试 |
+| 连续无进展 | 3 次重启（可配置） | 停止，需人工介入诊断 |
 | git 冲突 | 任何冲突 | 停止，要求手动处理 |
 
 **适合：**
@@ -582,7 +608,7 @@ Step 5: 你审批（快速确认即可）
 
 ```bash
 python dev-framework/scripts/session-manager.py \
-    --project-dir "D:/my-project" status
+    --project-dir "<项目路径>" status
 ```
 
 输出：迭代、阶段、进度（x/y 完成）、当前任务。
@@ -591,7 +617,7 @@ python dev-framework/scripts/session-manager.py \
 
 ```bash
 python dev-framework/scripts/session-manager.py \
-    --project-dir "D:/my-project" checkpoint
+    --project-dir "<项目路径>" checkpoint
 ```
 
 通常由 Leader Agent 自动调用。你也可以手动触发。
@@ -600,7 +626,7 @@ python dev-framework/scripts/session-manager.py \
 
 ```bash
 python dev-framework/scripts/session-manager.py \
-    --project-dir "D:/my-project" resume
+    --project-dir "<项目路径>" resume
 ```
 
 输出完整恢复摘要（任务状态、检查点、决策、经验、基线），同时写入 `.claude/dev-state/{iteration-id}/resume-summary.md`。
@@ -613,7 +639,7 @@ python dev-framework/scripts/session-manager.py \
 
 ```bash
 python dev-framework/scripts/run-verify.py \
-    --project-dir "D:/my-project" \
+    --project-dir "<项目路径>" \
     --iteration-id "iter-1" \
     --task-id "CR-001"
 ```
@@ -622,7 +648,7 @@ python dev-framework/scripts/run-verify.py \
 
 ```bash
 python dev-framework/scripts/run-verify.py \
-    --project-dir "D:/my-project" \
+    --project-dir "<项目路径>" \
     --iteration-id "iter-1" \
     --all
 ```
@@ -631,7 +657,7 @@ python dev-framework/scripts/run-verify.py \
 
 ```bash
 python dev-framework/scripts/run-verify.py \
-    --project-dir "D:/my-project" \
+    --project-dir "<项目路径>" \
     --iteration-id "iter-1" \
     --generate-skeleton "CR-001"
 ```
@@ -643,14 +669,39 @@ python dev-framework/scripts/run-verify.py \
 ```bash
 # 检查特定门控
 python dev-framework/scripts/check-quality-gate.py \
-    --project-dir "D:/my-project" \
+    --project-dir "<项目路径>" \
     --gate gate_4
 
 # 检查所有门控
 python dev-framework/scripts/check-quality-gate.py \
-    --project-dir "D:/my-project" \
+    --project-dir "<项目路径>" \
     --all
 ```
+
+### phase-gate.py
+
+Phase 门控检查脚本，在 Phase 转换前验证前置条件是否满足。
+
+**用法**:
+
+```bash
+python dev-framework/scripts/phase-gate.py --project-dir <项目目录> --iteration-id <迭代ID> --from <当前phase> --to <目标phase>
+```
+
+**参数**:
+- `--project-dir`: 项目目录路径
+- `--iteration-id`: 迭代编号（如 `iter-1`）
+- `--from`: 当前 Phase（如 `phase_0`, `phase_1`, ...`phase_5`）
+- `--to`: 目标 Phase
+- `--force`: （可选）强制跳过门控（必须在 decisions.md 中记录原因）
+
+**门控规则**:
+- Phase 0→1: 检查 manifest.json 存在
+- Phase 1→2: 检查 requirement-spec.md 存在
+- Phase 2→3: 检查 tasks/ 非空 + verify 脚本完整 + 脚本质量底线
+- Phase 3→3.5: 检查所有 CR 状态为 ready_for_verify 或更后（hotfix 跳过）
+- Phase 3.5→4: 检查所有 CR 状态为 ready_for_review 或 PASS（hotfix 跳过）
+- Phase 4→5: 检查所有 CR 为 PASS + done_evidence 非空 + review_result 非空（hotfix 仅检查 status==PASS）
 
 ### 任务规模估算
 
@@ -665,7 +716,7 @@ python dev-framework/scripts/estimate-tasks.py \
 
 ```bash
 python dev-framework/scripts/generate-report.py \
-    --project-dir "D:/my-project" \
+    --project-dir "<项目路径>" \
     --iteration-id "iter-1"
 ```
 
@@ -680,7 +731,7 @@ python dev-framework/scripts/generate-report.py \
 ```bash
 # 1. 框架文件注入
 python dev-framework/scripts/init-project.py \
-    --project-dir "D:/crm-system" \
+    --project-dir "<项目路径>" \
     --requirement-doc "docs/README.md" \
     --tech-stack "python,django,postgresql,react"
 
@@ -688,7 +739,7 @@ python dev-framework/scripts/init-project.py \
 
 # 3. 记录基线
 python dev-framework/scripts/run-baseline.py \
-    --project-dir "D:/crm-system" \
+    --project-dir "<项目路径>" \
     --iteration-id "iter-0"
 # 输出: L1: 238 passed, 3 failed (预存), L2: 15 passed, Lint: 有问题
 ```
@@ -698,7 +749,7 @@ python dev-framework/scripts/run-baseline.py \
 ```bash
 # 初始化
 python dev-framework/scripts/init-iteration.py \
-    --project-dir "D:/crm-system" \
+    --project-dir "<项目路径>" \
     --requirement "客户列表分页不生效，第二页数据和第一页一样" \
     --iteration-id "iter-1"
 ```
@@ -738,7 +789,7 @@ mode: "auto-loop"
 
 ```bash
 python dev-framework/scripts/init-iteration.py \
-    --project-dir "D:/crm-system" \
+    --project-dir "<项目路径>" \
     --requirement "$(cat <<'EOF'
 ## 客户区域筛选功能
 
@@ -761,21 +812,32 @@ EOF
     --iteration-id "iter-2"
 
 python dev-framework/scripts/run-baseline.py \
-    --project-dir "D:/crm-system" \
+    --project-dir "<项目路径>" \
     --iteration-id "iter-2"
 ```
 
-启动 Claude Code：
+使用 `auto-loop-runner.py` 启动 AutoLoop 外围循环（v3.0 推荐方式）：
 
+```bash
+python dev-framework/scripts/auto-loop-runner.py \
+    --project-dir "<项目路径>" \
+    --iteration-id "iter-2" \
+    --max-restarts 10
+```
+
+或直接启动 Claude Code：
 ```
 请按 Auto Loop 模式执行 iter-2 的完整开发流程。
 ```
+
+> v3.0 推荐使用 `auto-loop-runner.py`，它会在 Claude 会话因上下文耗尽结束时自动重启，
+> 并监控进度和安全阀。
 
 Claude 全自动跑完，你事后看报告：
 
 ```bash
 python dev-framework/scripts/generate-report.py \
-    --project-dir "D:/crm-system" \
+    --project-dir "<项目路径>" \
     --iteration-id "iter-2"
 ```
 
@@ -789,46 +851,29 @@ L1: 267 passed (+29 new)
 
 ---
 
-## 九、从 v2.5 升级到 v2.6
+## 九、从 v2.6 升级到 v3.0
 
-### 适用对象
+### v3.0 主要变化
 
-已使用 dev-framework v2.5 初始化的存量项目。新项目直接使用 `init-project.py` 即可，无需升级。
-
-### 前置条件
-
-| 条件 | 说明 |
+| 变化 | 说明 |
 |------|------|
-| 项目已初始化 | `.claude/dev-state/` 目录存在 |
-| Python 3.10+ | 升级脚本运行环境 |
-| PyYAML >= 6.0 | `pip install PyYAML>=6.0` |
-| 工作区干净 | 建议先 `git commit` 所有业务代码变更 |
+| **合并 CLAUDE.md** | 5 个 Agent 协议 + 质量门控规则合并到 `.claude/CLAUDE.md`，作为系统提示永不压缩 |
+| **滚动上下文快照** | 新增 `context-snapshot.md`，每个显著动作后更新，支持跨会话快速恢复 |
+| **AutoLoop 外围脚本** | 新增 `auto-loop-runner.py`，自动重启 Claude 会话直到任务完成 |
+| **强制启动协议** | 每个新会话必须先读取配置和快照，不可跳过 |
+| **snapshot 配置** | `run-config.yaml` 新增 `snapshot` 配置块 |
+| **删除独立文件** | `agents/`（5 个 Agent 协议）和 `workflows/`（4 个工作流）目录已删除，内容合并到 CLAUDE.md |
 
-### v2.6 主要变化
+### 自动处理的迁移项（由升级脚本完成）
 
-**自动处理的破坏性变更（由升级脚本完成）：**
-- `iteration-0` 目录自动重命名为 `iter-0`（所有 iteration-N 统一为 iter-N）
-- `experience-log.md` 内容自动迁移到 CLAUDE.md「已知坑点与最佳实践」章节
-- 任务 YAML 的 `acceptance_criteria` 自动从 list 转为 dict 格式
-- 缺失的 `priority` 字段自动补充默认值 P1
-- `review_result.issues` 自动转为结构化格式 `{severity, desc, suggestion}`
-- Git hooks 自动重新生成（支持 Windows 兼容的 sh+python polyglot）
-- `session-state.json` 自动补齐 4 个新增 progress 字段
-- `baseline.json` 自动补齐 `l2_skipped` 字段
-- `run-config.yaml` 自动补齐 `toolchain`、`iteration_mode`、`hooks` 配置块
-- 5 个 Agent 协议文件自动更新到 v2.6 版本
+- 从 `CLAUDE-framework.md.tmpl` 生成合并版 `.claude/CLAUDE.md`
+- 保留现有 CLAUDE.md 中"已知坑点与最佳实践"的自定义内容
+- 创建初始 `context-snapshot.md`
+- 在 `run-config.yaml` 中添加 `snapshot` 配置块
+- 在 `.gitignore` 中添加 `**/context-snapshot.md`
+- 写入 `.framework-version = "3.0"`
 
-**需手动确认的变更：**
-- Mock 三项声明：如果项目测试使用了 Mock，需补充 `MOCK-REAL-TEST` 和 `MOCK-EXPIRE-WHEN` 声明
-- CLAUDE.md 项目特定内容：确认项目概述、安全策略等自定义章节未受影响
-
-**新增能力（无需迁移）：**
-- `phase-gate.py` Phase 转换门控检查
-- `hotfix` 紧急修复任务类型
-- 工具链自动检测（toolchain auto-detect）
-- commit-msg hook 支持 4 种模式
-
-### 自动升级步骤
+### 升级步骤
 
 #### Step 1：预览变更（dry-run）
 
@@ -838,7 +883,7 @@ python <框架路径>/scripts/upgrade-project.py \
     --dry-run
 ```
 
-查看将执行的所有变更，确认无误后执行 Step 2。
+查看 v2.6 步骤（应显示 skip）和 v3.0 步骤（应显示预期操作）。
 
 #### Step 2：执行正式升级
 
@@ -847,107 +892,59 @@ python <框架路径>/scripts/upgrade-project.py \
     --project-dir "<项目路径>"
 ```
 
-脚本自动执行：
-1. 备份所有将被修改的文件到 `.claude/dev-state/.upgrade-backup-{timestamp}/`
-2. 按顺序执行 16 步迁移
-3. 写入版本标记 `.claude/dev-state/.framework-version`
-4. 输出升级报告
+脚本自动执行 20 步迁移（v2.6 的 16 步 + v3.0 新增的 4 步），已完成的步骤会自动跳过。
 
-#### Step 3：查看升级报告
-
-关注升级报告中的状态标记：
-- `[APPLIED]` — 已成功执行
-- `[SKIPPED]` — 已是目标状态，无需处理
-- `[ERROR]` — 需要手动处理
-
-### 手动确认步骤
-
-升级脚本完成后，执行以下检查：
-
-**1. CLAUDE.md 检查**
-
-打开 `.claude/CLAUDE.md`（或项目根的 `CLAUDE.md`），确认：
-- 项目概述、关键目录、安全策略等自定义内容完好
-- 「已知坑点与最佳实践」章节中的经验记录已从 experience-log.md 迁移
-
-**2. run-config.yaml 检查**
-
-打开 `.claude/dev-state/run-config.yaml`，确认：
-- `mode`、`auto_loop`、`interactive` 等已有配置未被覆盖
-- 新增的 `toolchain` 默认值 `"auto"` 适合项目（如使用 uv/poetry 可手动指定）
-
-**3. Mock 三项声明（如适用）**
-
-如果项目测试代码使用了 Mock，检查每个 Mock 是否包含：
-```python
-# MOCK-REASON: 外部支付 API 不可用
-# MOCK-REAL-TEST: tests/integration/test_payment_real.py
-# MOCK-EXPIRE-WHEN: 支付沙箱环境就绪
-```
-
-### 验证方法
+#### Step 3：验证
 
 ```bash
 # 1. 确认版本标记
 cat .claude/dev-state/.framework-version
-# 应输出: 2.6
+# 应输出: 3.0
 
-# 2. 环境就绪检查（Gate 0）
-python <框架路径>/scripts/check-quality-gate.py \
-    --project-dir "<项目路径>" --gate gate_0
+# 2. 确认 CLAUDE.md 包含 agent 协议
+grep "Leader Agent 协议" .claude/CLAUDE.md
+# 应有输出
 
-# 3. 查看 session 状态
-python <框架路径>/scripts/session-manager.py \
-    --project-dir "<项目路径>" status
+# 3. 确认 context-snapshot.md 存在
+ls .claude/dev-state/context-snapshot.md
 
-# 4. 任务格式检查（Gate 2，需有已存在的任务）
-python <框架路径>/scripts/check-quality-gate.py \
-    --project-dir "<项目路径>" --gate gate_2
+# 4. 确认 run-config.yaml 包含 snapshot 配置
+grep "snapshot:" .claude/dev-state/run-config.yaml
 ```
 
 ### 回滚方法
 
-#### 方法 A：使用脚本备份回滚
-
-升级脚本会在 `.claude/dev-state/.upgrade-backup-{timestamp}/` 创建完整备份：
+#### 方法 A：使用脚本备份
 
 ```bash
-# 查看备份内容
+# 查看备份
 ls .claude/dev-state/.upgrade-backup-*/
-
-# 参考 manifest.txt 了解每个文件的原始路径
 cat .claude/dev-state/.upgrade-backup-*/manifest.txt
 
 # 手动将备份文件逐一复制回原位
 ```
 
-#### 方法 B：使用 Git 回滚
-
-如果 `.claude/` 目录已被 Git 跟踪，且升级前已 commit：
+#### 方法 B：使用 Git（如果 .claude/ 被 Git 跟踪）
 
 ```bash
 git checkout -- .claude/
-git checkout -- .git/hooks/
 ```
-
-> 注意：如果 `.claude/` 在 .gitignore 中（框架默认行为），Git 回滚不适用，请使用方法 A。
 
 ### 升级 FAQ
 
-**Q: 升级会影响正在进行的迭代吗？**
-A: 不会。升级脚本只修改框架文件和数据格式，不改变任务状态和业务逻辑。升级后可继续当前迭代。
+**Q: 合并后 .claude/CLAUDE.md 很大会有问题吗？**
+A: 不会。合并后约 1,900 行（~18% of 200K 上下文），与之前通过 Read 工具加载消耗相同的 Token，但好处是永远不会被上下文压缩丢失。
 
-**Q: 可以跳过某些迁移步骤吗？**
-A: 不建议。16 步迁移有依赖关系（如目录重命名必须先于任务 YAML 更新）。建议完整运行。
+**Q: auto-loop-runner.py 怎么用？**
+A: 设置 `run-config.yaml` 中 `mode: "auto-loop"`，然后运行：
+```bash
+python <框架路径>/scripts/auto-loop-runner.py \
+    --project-dir "." --iteration-id "iter-N" --max-restarts 10
+```
+脚本会在 Claude 会话结束后自动重启，并监控进展和安全阀。
 
-**Q: 升级脚本跑了两次会怎样？**
-A: 安全。脚本设计为幂等，重复运行只会跳过已完成的步骤（标记为 SKIPPED）。
-
-**Q: 多个项目可以用同一个框架目录升级吗？**
-A: 可以。对每个项目分别运行 `upgrade-project.py --project-dir <项目路径>`。
-
-**Q: 升级后旧版本的框架脚本还能用吗？**
-A: 不建议混用。升级后请统一使用 v2.6 的框架脚本目录。
+**Q: agents/ 目录还有用吗？**
+A: v3.0 已将所有 Agent 协议合并到 `.claude/CLAUDE.md`，独立的 `agents/` 和 `workflows/` 目录已删除。所有协议和工作流规则统一在 `CLAUDE-framework.md.tmpl` 中维护。
 
 ---
 
@@ -963,7 +960,7 @@ A: 不建议混用。升级后请统一使用 v2.6 的框架脚本目录。
 告诉 Claude 新增需求，它会调用 Analyst 追加 CR 到当前迭代的 tasks/ 目录。
 
 **Q: 可以跳过 Verifier 直接让 Reviewer 审查吗？**
-不可以。v2.6 起无论 CR 数量多少，每个阶段必须由对应角色的 Agent 执行。
+不可以。无论 CR 数量多少，每个阶段必须由对应角色的 Agent 执行。
 这是 P4 原则（不可自评通过）的强制要求。即使只有 1 个 CR 也必须建立完整的 5 角色团队。
 
 **Q: run-config.yaml 可以在迭代中途改吗？**

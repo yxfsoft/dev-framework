@@ -1,17 +1,16 @@
 #!/usr/bin/env python3
 """
-init-project.py — 初始化新项目的开发框架
+init-project.py — 初始化新项目的开发框架 (v3.0)
 
 用法:
     python dev-framework/scripts/init-project.py \
-        --project-dir "D:/new-project" \
-        --requirement-doc "D:/new-project/docs/requirements.md" \
+        --project-dir "<项目路径>" \
+        --requirement-doc "<项目路径>/docs/requirements.md" \
         --tech-stack "python,react"
 
 执行后在目标项目中生成:
-    .claude/agents/         Agent 定义文件
     .claude/dev-state/      开发状态目录
-    .claude/CLAUDE.md       项目宪法（需手动定制）
+    .claude/CLAUDE.md       项目宪法（需手动定制；v3.0 已合并 Agent 协议）
     ARCHITECTURE.md         架构决策记录
     scripts/verify/         验收脚本目录
 """
@@ -26,7 +25,10 @@ from pathlib import Path
 
 
 def get_framework_dir() -> Path:
-    """获取框架根目录"""
+    """获取框架根目录。支持 DEV_FRAMEWORK_DIR 环境变量覆盖。"""
+    env_dir = os.environ.get("DEV_FRAMEWORK_DIR")
+    if env_dir:
+        return Path(env_dir)
     return Path(__file__).parent.parent
 
 
@@ -42,14 +44,13 @@ def append_gitignore(project_dir: Path):
 
     rules = f"""
 {marker}
-# 框架注入文件（Agent 协议、脚本副本、配置）
+# 框架注入文件（脚本副本、配置；v3.0 Agent 协议已合并到 CLAUDE.md）
 .claude/dev-state/
-.claude/agents/
 
 # 迭代记录（task YAML、verify 脚本、manifest）
 # 这些文件由各端独立生成，双端开发时会产生冲突
-iter-*/
-iteration-*/
+.claude/dev-state/iter-*/
+.claude/dev-state/iteration-*/
 
 # 进度与状态文件
 **/session-state.json
@@ -61,6 +62,7 @@ iteration-*/
 # 框架生成的临时文件
 **/experience-log.md
 **/run-config.yaml
+**/context-snapshot.md
 
 # === dev-framework: 自动生成规则结束 ===
 """
@@ -176,23 +178,42 @@ else:  # default
 '''
     (git_hooks_dir / "commit-msg").write_text(commit_msg, encoding="utf-8")
 
-    # pre-push: 全量 L1 回归
+    # pre-push: 全量 L1 回归（工具链感知）
     pre_push = '''\
 #!/bin/sh
 "exec" "$(command -v python3 || command -v python)" "$0" "$@"
 # --- 以下为 Python 代码 ---
-"""pre-push hook: 推送前运行全量 L1 测试"""
-import subprocess, sys
+"""pre-push hook: 推送前运行全量 L1 测试（自动检测工具链）"""
+import shlex, subprocess, sys
 from pathlib import Path
 
 tests_dir = Path("tests")
 if not tests_dir.exists():
     sys.exit(0)  # 无测试目录，跳过
 
-result = subprocess.run(
-    [sys.executable, "-m", "pytest", "tests/", "-x", "-q", "--tb=line"],
-    capture_output=True, text=True,
-)
+# 逻辑与 fw_utils.detect_toolchain() 同步，修改时请同步更新
+# 检测工具链：优先读取 run-config.yaml，回退到锁文件检测
+test_cmd = None
+try:
+    import yaml
+    config_path = Path(".claude/dev-state/run-config.yaml")
+    if config_path.exists():
+        config = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+        runner = config.get("toolchain", {}).get("test_runner", "auto")
+        if runner != "auto":
+            test_cmd = shlex.split(runner) + ["tests/", "-x", "-q", "--tb=line"]
+except ImportError:
+    pass
+
+if test_cmd is None:
+    if Path("uv.lock").exists():
+        test_cmd = ["uv", "run", "pytest", "tests/", "-x", "-q", "--tb=line"]
+    elif Path("poetry.lock").exists():
+        test_cmd = ["poetry", "run", "pytest", "tests/", "-x", "-q", "--tb=line"]
+    else:
+        test_cmd = [sys.executable, "-m", "pytest", "tests/", "-x", "-q", "--tb=line"]
+
+result = subprocess.run(test_cmd, capture_output=True, text=True)
 if result.returncode != 0:
     print("pre-push 检查失败: 测试未通过")
     print(result.stdout[-500:] if len(result.stdout) > 500 else result.stdout)
@@ -225,7 +246,6 @@ def init_project(project_dir: Path, requirement_doc: str, tech_stack: str) -> No
 
     # 1. 创建目录结构
     dirs = [
-        ".claude/agents",
         ".claude/dev-state/iter-0/tasks",
         ".claude/dev-state/iter-0/verify",
         ".claude/dev-state/iter-0/checkpoints",
@@ -240,16 +260,7 @@ def init_project(project_dir: Path, requirement_doc: str, tech_stack: str) -> No
         (project_dir / d).mkdir(parents=True, exist_ok=True)
         print(f"  创建目录: {d}")
 
-    # 2. 复制 Agent 定义
-    agents_src = framework_dir / "agents"
-    agents_dst = project_dir / ".claude" / "agents"
-    if not agents_src.exists():
-        print(f"  [WARN] Agent 定义源目录不存在: {agents_src}，跳过复制")
-    for agent_file in (agents_src.glob("*.md") if agents_src.exists() else []):
-        shutil.copy2(agent_file, agents_dst / agent_file.name)
-        print(f"  复制 Agent: {agent_file.name}")
-
-    # 3. 生成 session-state.json
+    # 2. 生成 session-state.json（v3.0: agents/ 目录已废弃，Agent 协议已合并到 CLAUDE.md）
     session_state = {
         "session_id": f"ses-{now.strftime('%Y%m%d-%H%M%S')}",
         "started_at": now.isoformat(),
@@ -263,8 +274,12 @@ def init_project(project_dir: Path, requirement_doc: str, tech_stack: str) -> No
             "completed": 0,
             "in_progress": 0,
             "pending": 0,
+            "ready_for_verify": 0,
+            "ready_for_review": 0,
             "rework": 0,
             "failed": 0,
+            "blocked": 0,
+            "timeout": 0,
         },
         "last_checkpoint": "",
         "consecutive_failures": 0,
@@ -275,6 +290,64 @@ def init_project(project_dir: Path, requirement_doc: str, tech_stack: str) -> No
         json.dumps(session_state, indent=2, ensure_ascii=False), encoding="utf-8"
     )
     print(f"  生成: session-state.json")
+
+    # 2.5 v3.0: 生成初始 context-snapshot.md
+    snapshot_path = project_dir / ".claude" / "dev-state" / "context-snapshot.md"
+    snapshot_tmpl = framework_dir / "templates" / "project" / "context-snapshot.md.tmpl"
+    if snapshot_tmpl.exists():
+        snapshot_content = snapshot_tmpl.read_text(encoding="utf-8")
+        replacements = {
+            "{{TIMESTAMP}}": now.isoformat(),
+            "{{MODE}}": "interactive",
+            "{{ITERATION}}": "iter-0",
+            "{{PHASE}}": "phase_0",
+            "{{TASK_ID}}": "无",
+            "{{STATUS}}": "N/A",
+            "{{CURRENT_STEP}}": "N/A",
+            "{{TOOLCHAIN}}": "auto",
+            "{{ITERATION_MODE}}": "standard",
+            "{{TOTAL}}": "0",
+            "{{COMPLETED}}": "0",
+            "{{IN_PROGRESS}}": "0",
+            "{{PENDING}}": "0",
+            "{{COMPLETED_LIST}}": "无",
+            "{{IN_PROGRESS_DETAIL}}": "无",
+            "{{PENDING_LIST}}": "无",
+            "{{DEPENDENCIES}}": "无",
+            "{{TECH_DECISIONS}}": "项目刚初始化，尚无开发上下文",
+            "{{FOUND_ISSUES}}": "无",
+            "{{TECH_DETAILS}}": "无",
+            "{{L1_PASSED}}": "0",
+            "{{L1_FAILED}}": "0",
+            "{{L2_PASSED}}": "0",
+            "{{PENDING_VERIFY_LIST}}": "无",
+            "{{REWORK_TASKS}}": "无",
+            "{{NEXT_ACTION_1}}": "填写 .claude/CLAUDE.md 的占位符",
+            "{{NEXT_ACTION_2}}": "准备需求文档",
+            "{{NEXT_ACTION_3}}": "启动 Claude Code 开始 Phase 1",
+        }
+        for placeholder, value in replacements.items():
+            snapshot_content = snapshot_content.replace(placeholder, value)
+    else:
+        # fallback: 内联生成
+        snapshot_content = (
+            f"# 当前上下文快照\n"
+            f"> 最后更新: {now.isoformat()}\n\n"
+            f"## 状态\n"
+            f"- 模式: interactive | 迭代: iter-0 | 阶段: phase_0\n"
+            f"- 当前任务: 无\n"
+            f"- 运行配置: toolchain=auto, iteration_mode=standard\n\n"
+            f"## 进度总览\n"
+            f"- 总计: 0 CR | 完成: 0 | 进行中: 0 | 待开始: 0\n\n"
+            f"## 关键上下文\n"
+            f"- 项目刚初始化，尚无开发上下文\n\n"
+            f"## 下一步\n"
+            f"1. 填写 .claude/CLAUDE.md 的占位符\n"
+            f"2. 准备需求文档\n"
+            f"3. 启动 Claude Code 开始 Phase 1\n"
+        )
+    snapshot_path.write_text(snapshot_content, encoding="utf-8")
+    print(f"  生成: context-snapshot.md")
 
     # 4. 生成 baseline.json（空基线）
     baseline = {
@@ -297,14 +370,29 @@ def init_project(project_dir: Path, requirement_doc: str, tech_stack: str) -> No
     )
     print(f"  生成: baseline.json")
 
-    # 5. 生成 run-config.yaml（从 schemas/run-config.yaml 复制默认配置）
-    run_config_src = framework_dir / "schemas" / "run-config.yaml"
+    # 5. 生成 run-config.yaml（优先从 templates/ 复制，回退到 schemas/）
+    run_config_tmpl = framework_dir / "templates" / "project" / "run-config.yaml.tmpl"
+    run_config_fallback = framework_dir / "schemas" / "run-config.yaml"
     run_config_dst = project_dir / ".claude" / "dev-state" / "run-config.yaml"
-    if run_config_src.exists():
-        shutil.copy2(run_config_src, run_config_dst)
-        print(f"  生成: run-config.yaml")
+    if run_config_tmpl.exists():
+        shutil.copy2(run_config_tmpl, run_config_dst)
+        print(f"  生成: run-config.yaml (from templates/)")
+    elif run_config_fallback.exists():
+        # 加载 schema YAML 检查是否为嵌套格式（不可直接用作配置）
+        import yaml as _yaml
+        try:
+            _schema = _yaml.safe_load(run_config_fallback.read_text(encoding="utf-8"))
+            if isinstance(_schema, dict) and "fields" in _schema:
+                print(f"  [ERROR] {run_config_fallback} 是 Schema 定义格式（含 fields 层级），"
+                      f"不可直接用作项目配置。请确保 templates/project/run-config.yaml.tmpl 存在。")
+            else:
+                shutil.copy2(run_config_fallback, run_config_dst)
+                print(f"  生成: run-config.yaml (from schemas/ fallback)")
+        except Exception:
+            shutil.copy2(run_config_fallback, run_config_dst)
+            print(f"  生成: run-config.yaml (from schemas/ fallback)")
     else:
-        print(f"  [WARN] run-config.yaml 模板不存在: {run_config_src}，跳过")
+        print(f"  [WARN] run-config.yaml 模板不存在，跳过")
 
     # 6. 生成 manifest.json
     manifest = {
@@ -313,6 +401,7 @@ def init_project(project_dir: Path, requirement_doc: str, tech_stack: str) -> No
         "status": "active",
         "created_at": now.isoformat(),
         "requirement_doc": requirement_doc,
+        "requirement_summary": requirement_doc.split("/")[-1] if "/" in requirement_doc else requirement_doc,
         "tech_stack": tech_stack.split(","),
         "phase": "phase_0",
         "last_checkpoint": "",
@@ -325,14 +414,8 @@ def init_project(project_dir: Path, requirement_doc: str, tech_stack: str) -> No
     )
     print(f"  生成: iter-0/manifest.json")
 
-    # 7. 生成兼容文件（v2.6: experience-log.md 已废弃，保留空壳以兼容旧版本）
+    # 7. 生成迭代初始文件
     empty_files = {
-        ".claude/dev-state/experience-log.md": (
-            "# 经验教训日志 (DEPRECATED)\n\n"
-            "> v2.6 起此文件已废弃。\n"
-            "> 经验教训请写入 CLAUDE.md 的「已知坑点与最佳实践」章节。\n"
-            "> 保留此文件以兼容旧版本，但不再主动使用。\n\n---\n"
-        ),
         ".claude/dev-state/iter-0/requirement-raw.md": f"# 原始需求\n\n需求文档路径: `{requirement_doc}`\n\n请参阅需求文档。\n",
         ".claude/dev-state/iter-0/decisions.md": "# 关键决策日志\n\n> 记录开发过程中的关键技术决策。\n\n---\n",
     }
@@ -341,83 +424,101 @@ def init_project(project_dir: Path, requirement_doc: str, tech_stack: str) -> No
         file_path.write_text(content, encoding="utf-8")
         print(f"  生成: {rel_path}")
 
-    # 8. 生成 CLAUDE.md（支持追加模式 — FIX-07）
+    # 8. v3.0: 生成合并版 .claude/CLAUDE.md
     root_claude = project_dir / "CLAUDE.md"
     dot_claude = project_dir / ".claude" / "CLAUDE.md"
 
     if root_claude.exists():
-        # 追加模式：已有项目，生成到 .claude/CLAUDE.md
+        # 追加模式：已有项目
         print(f"  检测到已有 CLAUDE.md，采用追加模式 → .claude/CLAUDE.md")
         if not dot_claude.exists():
-            append_content = (
-                f"# dev-framework 配置\n\n"
-                f"> 此文件由 dev-framework init-project.py 自动生成\n"
-                f"> 与项目根目录的 CLAUDE.md 互补，不覆盖\n\n"
-                f"## 框架工作流\n"
-                f"- 迭代模式：iterate-mode\n"
-                f"- 质量门控：8 层 Gate（Gate 0-7）\n"
-                f"- Agent 角色：Leader / Analyst / Developer / Verifier / Reviewer\n\n"
-                f"## 已知坑点与最佳实践\n"
-                f"<!-- 开发过程中发现的问题和解决方案，由 Developer Agent 自动维护 -->\n\n"
-                f"## Git 提交规范\n\n"
-                f"框架文件禁止提交到 Git（.gitignore 已配置）：\n"
-                f"- `.claude/dev-state/` — 状态文件、迭代记录\n"
-                f"- `.claude/agents/` — Agent 协议副本\n"
-                f"- `iter-*/` — 迭代目录\n"
-                f"- 原因：双端开发场景下框架文件会产生冲突\n\n"
-                f"## 工具链配置\n"
-                f"参见 `.claude/dev-state/run-config.yaml`\n"
-            )
-            dot_claude.write_text(append_content, encoding="utf-8")
-            print(f"  生成: .claude/CLAUDE.md (追加模式)")
+            # 生成框架运行时手册
+            fw_tmpl = framework_dir / "templates" / "project" / "CLAUDE-framework.md.tmpl"
+            if fw_tmpl.exists():
+                fw_content = fw_tmpl.read_text(encoding="utf-8")
+                fw_content = fw_content.replace("{{FRAMEWORK_PATH}}", str(framework_dir))
+                fw_content = fw_content.replace("{{PROJECT_GOTCHAS}}", "<!-- 开发过程中发现的坑点和最佳实践，由 Developer Agent 自动维护 -->")
+                dot_claude.write_text(fw_content, encoding="utf-8")
+                print(f"  生成: .claude/CLAUDE.md (v3.0 合并版运行时手册，追加模式)")
+            else:
+                # 回退：简化版
+                dot_claude.write_text(
+                    f"# dev-framework 配置\n\n"
+                    f"> 此文件由 dev-framework init-project.py 自动生成\n\n"
+                    f"## 框架工作流\n"
+                    f"- 框架路径: {framework_dir}\n"
+                    f"- 质量门控：8 层 Gate（Gate 0-7）\n"
+                    f"- Agent 角色：Leader / Analyst / Developer / Verifier / Reviewer\n",
+                    encoding="utf-8",
+                )
+                print(f"  生成: .claude/CLAUDE.md (简化版，追加模式)")
     elif not dot_claude.exists():
-        tmpl_path = framework_dir / "templates" / "project" / "CLAUDE.md.tmpl"
-        if tmpl_path.exists():
-            content = tmpl_path.read_text(encoding="utf-8")
-            content = content.replace("{{PROJECT_NAME}}", project_dir.name)
-            content = content.replace("{{TECH_STACK}}", tech_stack)
-            # M46: 补充其余占位符的默认值（用户可后续手动定制）
-            content = content.replace(
+        # 全新项目：生成框架运行时手册 + 项目配置
+        fw_tmpl = framework_dir / "templates" / "project" / "CLAUDE-framework.md.tmpl"
+        proj_tmpl = framework_dir / "templates" / "project" / "CLAUDE.md.tmpl"
+
+        parts = []
+
+        # Part 1: 项目配置（从 CLAUDE.md.tmpl）
+        if proj_tmpl.exists():
+            proj_content = proj_tmpl.read_text(encoding="utf-8")
+            proj_content = proj_content.replace("{{PROJECT_NAME}}", project_dir.name)
+            proj_content = proj_content.replace("{{TECH_STACK}}", tech_stack)
+            proj_content = proj_content.replace(
                 "{{PROJECT_DESCRIPTION}}",
                 f"<!-- TODO: 填写 {project_dir.name} 的一句话描述 -->",
             )
-            content = content.replace(
+            proj_content = proj_content.replace(
                 "{{PROJECT_OVERVIEW}}",
                 f"<!-- TODO: 填写 {project_dir.name} 的项目概述 -->",
             )
-            content = content.replace(
+            proj_content = proj_content.replace(
                 "{{PROJECT_URL}}",
-                "<!-- TODO: 填写项目仓库 URL -->",
+                "TODO: 填写项目仓库 URL",
             )
-            content = content.replace(
+            proj_content = proj_content.replace(
                 "{{PACKAGE_MANAGERS}}",
                 "<!-- TODO: 填写包管理器说明（如 pip / uv / poetry / npm） -->",
             )
-            content = content.replace(
+            proj_content = proj_content.replace(
                 "{{CODE_STYLE}}",
                 "<!-- TODO: 填写代码风格规范（如 ruff / black / eslint） -->",
             )
-            content = content.replace(
+            proj_content = proj_content.replace(
                 "{{DIRECTORY_STRUCTURE}}",
                 "<!-- TODO: 填写关键目录结构 -->",
             )
-            content = content.replace(
+            proj_content = proj_content.replace(
                 "{{SECURITY_POLICY}}",
                 "<!-- TODO: 填写安全策略（如密钥管理、输入校验规则） -->",
             )
-            dot_claude.write_text(content, encoding="utf-8")
+            parts.append(proj_content)
+
+        # Part 2: 框架运行时手册（从 CLAUDE-framework.md.tmpl）
+        if fw_tmpl.exists():
+            fw_content = fw_tmpl.read_text(encoding="utf-8")
+            fw_content = fw_content.replace("{{FRAMEWORK_PATH}}", str(framework_dir))
+            fw_content = fw_content.replace("{{PROJECT_GOTCHAS}}", "<!-- 开发过程中发现的坑点和最佳实践，由 Developer Agent 自动维护 -->")
+            parts.append(fw_content)
+
+        if parts:
+            dot_claude.write_text("\n\n---\n\n".join(parts), encoding="utf-8")
         else:
             dot_claude.write_text(
                 f"# CLAUDE.md — {project_dir.name}\n\n"
-                f"> 请基于 dev-framework/templates/project/CLAUDE.md.tmpl 模板，\n"
-                f"> 结合项目实际情况定制此文件。\n\n"
+                f"> 请基于 dev-framework 模板定制此文件。\n\n"
                 f"技术栈: {tech_stack}\n"
                 f"需求文档: {requirement_doc}\n",
                 encoding="utf-8",
             )
-        print(f"  生成: CLAUDE.md (需手动定制 {{VARIABLE}} 占位符)")
+        print(f"  生成: .claude/CLAUDE.md (v3.0 合并版，需手动定制项目配置占位符)")
 
-    # 9. 生成 ARCHITECTURE.md
+    # 9. v3.0: 写入版本标记
+    version_path = project_dir / ".claude" / "dev-state" / ".framework-version"
+    version_path.write_text("3.0\n", encoding="utf-8")
+    print(f"  生成: .framework-version = 3.0")
+
+    # 10. 生成 ARCHITECTURE.md
     arch_path = project_dir / "ARCHITECTURE.md"
     if not arch_path.exists():
         arch_src = framework_dir / "templates" / "project" / "ARCHITECTURE.md.tmpl"
@@ -429,7 +530,7 @@ def init_project(project_dir: Path, requirement_doc: str, tech_stack: str) -> No
         else:
             print(f"  跳过: ARCHITECTURE.md（模板文件不存在: {arch_src}）")
 
-    # 10. 生成 default.yaml
+    # 11. 生成 default.yaml
     config_path = project_dir / "config" / "default.yaml"
     if not config_path.exists():
         config_path.write_text(
@@ -439,10 +540,10 @@ def init_project(project_dir: Path, requirement_doc: str, tech_stack: str) -> No
         )
         print(f"  生成: config/default.yaml")
 
-    # 11. 生成 Git hooks
+    # 12. 生成 Git hooks
     _setup_git_hooks(project_dir)
 
-    # 12. 追加框架文件 .gitignore 规则（FIX-20）
+    # 13. 追加框架文件 .gitignore 规则（FIX-20）
     append_gitignore(project_dir)
 
     # 完成

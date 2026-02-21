@@ -1,6 +1,6 @@
 {
   "$schema": "Session state format",
-  "$description": "记录当前 session 的运行状态，支持上下文恢复",
+  "$description": "记录当前 session 的运行状态，支持上下文恢复。注意：此文件仅作参考文档，框架运行时不执行 JSON Schema 校验。",
 
   "format": {
     "session_id": "唯一标识 (string, 自动生成)",
@@ -24,6 +24,10 @@
     },
     "last_checkpoint": "最新检查点文件名 (string)",
     "consecutive_failures": "连续失败计数 (int, auto-loop 用)",
+    "last_test_results": {
+      "l1_passed": "最近一次 L1 测试通过数 (int, auto-loop 用，由 auto-loop-runner.py 写入)",
+      "l1_failed": "最近一次 L1 测试失败数 (int, auto-loop 用)"
+    },
     "agents": {
       "active": ["活跃 Agent 列表"],
       "idle": ["空闲 Agent 列表"]

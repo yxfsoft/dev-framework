@@ -1,0 +1,70 @@
+{
+  "$schema": "Iteration manifest schema",
+  "$description": "manifest.json 格式定义。注意：此文件仅作参考文档，框架运行时不执行 JSON Schema 校验。",
+
+  "required_fields": ["id", "mode", "status", "created_at", "phase"],
+
+  "optional_fields": ["requirement_summary", "requirement_doc", "tech_stack", "last_checkpoint"],
+
+  "format": {
+    "id": {
+      "type": "string",
+      "pattern": "^iter-\\d+$",
+      "description": "迭代 ID，必须与所在目录名一致"
+    },
+    "mode": {
+      "type": "string",
+      "enum": ["init", "iterate"],
+      "description": "运行模式。init = 首次开发（iter-0），iterate = 迭代开发"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["active", "planning", "in_progress", "completed", "aborted"],
+      "description": "迭代状态"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "datetime",
+      "description": "ISO 8601 创建时间"
+    },
+    "phase": {
+      "type": "string",
+      "pattern": "^phase_[0-5](\\.5)?$",
+      "description": "当前阶段（phase_0 ~ phase_5，含 phase_3.5）"
+    },
+    "requirement_summary": {
+      "type": "string",
+      "description": "需求简述（init-iteration.py 写入，最长 200 字符）"
+    },
+    "requirement_doc": {
+      "type": "string",
+      "description": "需求文档路径（init-project.py 写入）"
+    },
+    "tech_stack": {
+      "type": "array",
+      "items": "string",
+      "description": "技术栈列表（init-project.py 写入）"
+    },
+    "last_checkpoint": {
+      "type": "string",
+      "nullable": true,
+      "description": "最新检查点文件名"
+    }
+  },
+
+  "usage": {
+    "init-iteration.py": "创建 manifest.json，写入 id, mode, status, created_at, requirement_summary, phase",
+    "phase-gate.py": "读取 phase 字段判断当前阶段，转换成功后更新 phase",
+    "init-project.py": "创建 iter-0 的 manifest.json，额外写入 requirement_doc 和 tech_stack"
+  },
+
+  "example": {
+    "id": "iter-3",
+    "mode": "iterate",
+    "status": "active",
+    "created_at": "2026-02-19T10:00:00+00:00",
+    "requirement_summary": "修复搜索超时问题；优化搜索结果排序",
+    "phase": "phase_2",
+    "last_checkpoint": "cp-001.md"
+  }
+}

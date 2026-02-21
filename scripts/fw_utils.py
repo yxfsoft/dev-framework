@@ -4,8 +4,6 @@ fw_utils.py — 框架脚本共享工具函数
 
 提供工具链检测、pytest 输出解析、配置加载等公共函数，
 供 run-baseline.py、check-quality-gate.py、run-verify.py 等脚本复用。
-
-v2.6 新增（FIX-01 + FIX-13）
 """
 
 from __future__ import annotations  # M35/M36: 支持 Python 3.7+ 新式类型注解
@@ -13,6 +11,7 @@ from __future__ import annotations  # M35/M36: 支持 Python 3.7+ 新式类型�
 import json
 import re
 import shlex
+import shutil
 import sys
 from pathlib import Path
 
@@ -23,7 +22,15 @@ except ImportError:
 
 
 # ============================================================
-# 工具链检测（FIX-01）
+# Phase 常量（全局唯一定义，所有脚本共用）
+# ============================================================
+
+PHASE_ORDER = ["phase_0", "phase_1", "phase_2", "phase_3", "phase_3.5", "phase_4", "phase_5"]
+PHASE_NUMS = [0, 1, 2, 3, 3.5, 4, 5]
+
+
+# ============================================================
+# 工具链检测
 # ============================================================
 
 def detect_toolchain(project_dir: Path, config: dict) -> dict:
@@ -78,12 +85,29 @@ def detect_toolchain(project_dir: Path, config: dict) -> dict:
     else:
         detected["python"] = sys.executable
 
+    # 验证检测到的工具是否在 PATH 中
+    for key in ("test_runner", "linter", "formatter", "python"):
+        cmd = detected[key]
+        # 提取命令的第一个词（如 "uv run pytest" → "uv"）
+        first_word = cmd.split()[0] if cmd else ""
+        if first_word and first_word != sys.executable and shutil.which(first_word) is None:
+            print(f"  [WARN] {key}: 命令 '{first_word}' 不在 PATH 中，回退到标准 Python")
+            # 回退到标准 Python 命令
+            if key == "test_runner":
+                detected[key] = f"{sys.executable} -m pytest"
+            elif key == "linter":
+                detected[key] = f"{sys.executable} -m ruff check ."
+            elif key == "formatter":
+                detected[key] = f"{sys.executable} -m ruff format --check ."
+            elif key == "python":
+                detected[key] = sys.executable
+
     return detected
 
 
 def build_test_cmd(toolchain: dict, test_dir: str, extra_args: list[str] | None = None) -> list[str]:
     """根据工具链构建 pytest 命令行列表。"""
-    base = shlex.split(toolchain["test_runner"])
+    base = shlex.split(toolchain.get("test_runner", f"{sys.executable} -m pytest"))
     cmd = base + [test_dir]
     if extra_args:
         cmd.extend(extra_args)
@@ -92,29 +116,12 @@ def build_test_cmd(toolchain: dict, test_dir: str, extra_args: list[str] | None 
 
 def build_lint_cmd(toolchain: dict) -> list[str]:
     """根据工具链构建 lint 命令行列表。"""
-    return shlex.split(toolchain["linter"])
+    return shlex.split(toolchain.get("linter", f"{sys.executable} -m ruff check ."))
 
 
 # ============================================================
-# pytest 输出解析（FIX-13: 从 run-baseline.py 提取复用）
+# pytest 输出解析
 # ============================================================
-
-def parse_pytest_output(output: str) -> dict:
-    """解析 pytest 输出，提取 passed/failed/skipped 数量。
-
-    依赖 pytest 标准汇总行格式，如 "5 passed, 1 failed, 2 skipped"。
-    """
-    result = {"passed": 0, "failed": 0, "skipped": 0}
-    patterns = {
-        "passed": r"(\d+) passed",
-        "failed": r"(\d+) failed",
-        "skipped": r"(\d+) skipped",
-    }
-    for key, pattern in patterns.items():
-        match = re.search(pattern, output)
-        if match:
-            result[key] = int(match.group(1))
-    return result
 
 
 def parse_pytest_passed(output: str) -> int:
@@ -123,8 +130,18 @@ def parse_pytest_passed(output: str) -> int:
     return int(match.group(1)) if match else 0
 
 
+def parse_pytest_output(output: str) -> dict:
+    """从 pytest 输出中解析 passed/failed/skipped 数量，返回三元组字典。"""
+    result = {"passed": 0, "failed": 0, "skipped": 0}
+    for key in result:
+        match = re.search(rf"(\d+) {key}", output)
+        if match:
+            result[key] = int(match.group(1))
+    return result
+
+
 # ============================================================
-# 配置加载（FIX-13: 统一配置加载逻辑）
+# 配置加载
 # ============================================================
 
 def load_run_config(project_dir: Path) -> dict:
@@ -139,19 +156,46 @@ def load_run_config(project_dir: Path) -> dict:
 
 
 def load_session_state(project_dir: Path) -> dict:
-    """加载 session-state.json，返回字典。缺失文件返回空字典。"""
+    """加载 session-state.json，返回字典。缺失或损坏文件返回空字典。"""
     state_path = project_dir / ".claude" / "dev-state" / "session-state.json"
     if not state_path.exists():
         return {}
-    return json.loads(state_path.read_text(encoding="utf-8"))
+    try:
+        return json.loads(state_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as e:
+        print(f"WARNING: 读取 session-state.json 失败: {e}")
+        return {}
 
 
 def load_baseline(project_dir: Path) -> dict | None:
-    """加载 baseline.json，返回字典。缺失文件返回 None。"""
+    """加载 baseline.json，返回字典。缺失或损坏文件返回 None。"""
     baseline_path = project_dir / ".claude" / "dev-state" / "baseline.json"
     if not baseline_path.exists():
         return None
-    return json.loads(baseline_path.read_text(encoding="utf-8"))
+    try:
+        return json.loads(baseline_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as e:
+        print(f"WARNING: 读取 baseline.json 失败: {e}")
+        return None
+
+
+def validate_manifest(manifest: dict) -> list[str]:
+    """校验 manifest.json 数据完整性，返回错误列表（空列表=通过）。"""
+    errors: list[str] = []
+    required_fields = ["id", "mode", "status", "created_at", "phase"]
+    for field in required_fields:
+        if field not in manifest:
+            errors.append(f"缺少必填字段: {field}")
+    mid = manifest.get("id", "")
+    if mid and not re.match(r"^iter-\d+$", mid):
+        errors.append(f"id 格式无效: '{mid}'（期望 iter-N）")
+    mode = manifest.get("mode", "")
+    if mode and mode not in ("init", "iterate"):
+        errors.append(f"mode 值无效: '{mode}'（期望 init 或 iterate）")
+    phase = manifest.get("phase", "")
+    if phase and not re.match(r"^phase_\d+(\.5)?$", phase):
+        errors.append(f"phase 格式无效: '{phase}'（期望 phase_N 或 phase_N.5）")
+    return errors
 
 
 def load_task_yaml(task_path: Path) -> dict | None:
@@ -176,3 +220,16 @@ def save_task_yaml(task_path: Path, task: dict) -> None:
         yaml.dump(task, allow_unicode=True, default_flow_style=False, sort_keys=False),
         encoding="utf-8",
     )
+
+
+# ============================================================
+# 框架目录定位
+# ============================================================
+
+def get_framework_dir() -> Path:
+    """获取框架根目录。支持 DEV_FRAMEWORK_DIR 环境变量覆盖。"""
+    import os
+    env_dir = os.environ.get("DEV_FRAMEWORK_DIR")
+    if env_dir:
+        return Path(env_dir)
+    return Path(__file__).resolve().parent.parent

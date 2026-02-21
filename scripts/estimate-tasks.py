@@ -61,6 +61,17 @@ def estimate(
     返回:
         包含 range, base, adjusted, infra, lines_adj, note 的字典
     """
+    if modules <= 0:
+        return {
+            "range": "0-0",
+            "base_calculation": f"{modules} modules (无效: 必须 > 0)",
+            "risk_adjustment": "N/A",
+            "lines_adjustment": "N/A",
+            "infra_addition": "N/A",
+            "adjusted_total": "0",
+            "note": "错误: modules 必须大于 0",
+        }
+
     base = modules * COMPLEXITY_FACTOR[complexity]
     adjusted = base * RISK_MULTIPLIER[risk]
 

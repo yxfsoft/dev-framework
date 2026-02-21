@@ -1,4 +1,4 @@
-# Hot-fix 轻量任务模板（v2.6 FIX-18 新增）
+# Hot-fix 轻量任务模板
 # 用于紧急修复和实机调试，跳过完整 Phase 0-5 流程
 
 id: "{{TASK_ID}}"
@@ -27,7 +27,8 @@ acceptance_criteria:
       desc: "修复后问题不再复现"
       status: FAIL
 
-# 状态（简化状态机: pending → in_progress → PASS，无 verify/review 阶段）
+# 状态（简化状态机: pending → in_progress → ready_for_review → PASS）
+# Leader 执行简化审查（仅检查基线回归 + 变更范围合理）
 # （此为简化流程，完整状态定义见 schemas/task-schema.yaml）
 status: pending
 current_step: null

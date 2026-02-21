@@ -64,49 +64,15 @@
 
 ## 5. 开发框架
 
-本项目使用 dev-framework 统一开发框架管理。
+本项目使用 dev-framework v3.0 管理。
+完整框架运行时手册已合并到 `.claude/CLAUDE.md`，作为系统提示自动加载。
 
-### Agent 定义
-- `.claude/agents/analyst.md` — 需求分析
-- `.claude/agents/developer.md` — 开发执行
-- `.claude/agents/verifier.md` — 独立验收
-- `.claude/agents/reviewer.md` — 代码审查
-- `.claude/agents/leader.md` — 编排协调
-
-> 注意：以下 `{{VARIABLE}}` 格式的占位符需要在项目初始化后手动填写：
-> `{{PROJECT_DESCRIPTION}}`, `{{PROJECT_OVERVIEW}}`, `{{TECH_STACK}}`,
-> `{{PACKAGE_MANAGERS}}`, `{{CODE_STYLE}}`, `{{DIRECTORY_STRUCTURE}}`,
-> `{{SECURITY_POLICY}}`, `{{PROJECT_URL}}`。
-> `{{PROJECT_NAME}}` 由 init-project.py 自动替换。
-
-### 状态目录
-- `.claude/dev-state/` — 开发状态（迭代/任务/检查点）
-
-### 运行模式
-- Interactive: 关键决策点暂停确认
-- Auto Loop: 全自动执行
-
-配置文件：`.claude/dev-state/run-config.yaml`
-
----
-
-## 5.1 已知坑点与最佳实践
-
-<!-- v2.6 FIX-05: 替代已废弃的 experience-log.md -->
-<!-- 开发过程中发现的问题和解决方案，由 Developer Agent 自动维护 -->
-<!-- 此章节自动加载为系统提示，无需手动读取 -->
-
----
-
-## 5.2 Git 提交规范
-
-<!-- v2.6 FIX-20: 框架文件禁止提交 Git -->
-
-以下文件/目录**禁止**提交到 Git（.gitignore 已自动配置）：
-- `.claude/dev-state/` — 框架状态文件
-- `.claude/agents/` — Agent 协议副本
-- `iter-*/` / `iteration-*/` — 迭代记录
-- 原因：双端开发场景下框架文件会产生冲突
+> 注意：init-project.py 已将占位符替换为 `<!-- TODO: 填写 ... -->` 格式。
+> 请搜索 `TODO` 关键字找到需要填写的位置：
+> `PROJECT_DESCRIPTION`, `PROJECT_OVERVIEW`, `TECH_STACK`,
+> `PACKAGE_MANAGERS`, `CODE_STYLE`, `DIRECTORY_STRUCTURE`,
+> `SECURITY_POLICY`, `PROJECT_URL`。
+> `PROJECT_NAME` 由 init-project.py 自动替换。
 
 ---
 
@@ -125,21 +91,3 @@ config/local.yaml     → 本地覆盖（不入 Git）
 ```
 
 加载顺序：default.yaml → local.yaml → .env（后者覆盖前者）。
-
----
-
-## 8. 上下文校准协议
-
-在开始任何 CR 的任何 Step 之前，先确认以下信息在脑中且准确：
-1. 当前阶段和任务：`.claude/dev-state/session-state.json` → current_phase + current_task
-2. 当前任务的要求：`tasks/{当前CR}.yaml` → design + acceptance_criteria + current_step
-3. 关键决策上下文：`decisions.md`（如有）
-
-如果以上信息清晰且确定，跳过校准直接工作。
-如果有任何不确定，读取对应文件后再继续。
-
-完整恢复（长时间中断后）：
-运行框架的 session-manager.py 脚本：`python <框架安装路径>/scripts/session-manager.py --project-dir "." resume`
-读取输出的 `resume-summary.md`，确认后继续。
-
-> 提示：框架安装路径即 dev-framework 仓库的根目录，在项目初始化时由 init-project.py 输出。

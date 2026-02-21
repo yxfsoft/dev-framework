@@ -65,7 +65,7 @@ new_test: |
   tests/unit/test_search_service.py::test_search_timeout_returns_408
 
 status: PASS
-current_step: ready_for_verify
+current_step: null
 retries: 0
 commits:
   - "abc1234"

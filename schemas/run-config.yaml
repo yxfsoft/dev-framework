@@ -1,93 +1,167 @@
-# 运行模式配置 Schema + 默认值
-# 此文件既是格式定义文档，也作为默认配置复制到项目中
-# init-project.py 会将此文件复制到 .claude/dev-state/run-config.yaml
+# run-config.yaml Schema 定义（字段定义文档）
+#
+# WARNING: 此文件采用嵌套式字段定义格式（fields.mode.type/enum/default），
+# 不是运行时扁平配置格式。不可直接用作项目配置文件。
+#
+# 用途：
+#   1. 格式定义文档 — 记录所有字段的类型、枚举值、默认值和说明
+#   2. 回退配置源（仅限紧急回退）— 当 templates/project/run-config.yaml.tmpl
+#      不存在时，init-project.py 会尝试使用此文件，但会校验格式是否兼容
+#
+# 注意：框架运行时不执行 JSON Schema 校验。
+# 实际配置模板请优先使用 templates/project/run-config.yaml.tmpl。
 
 ---
 
-# 运行模式
-mode: "interactive"   # interactive | auto-loop
+# 字段定义
 
-# ──────────────────────────────────────────────────
-# 工具链配置（v2.6 FIX-01 新增）
-# ──────────────────────────────────────────────────
-toolchain:
-  # 测试运行器（自动检测优先级：uv > poetry > pip）
-  test_runner: "auto"          # "auto" | "uv run pytest" | "poetry run pytest" | "pytest"
-  # Lint 工具
-  linter: "auto"               # "auto" | "uv run ruff check ." | "ruff check ."
-  # 格式化工具
-  formatter: "auto"            # "auto" | "uv run ruff format --check ." | "ruff format --check ."
-  # Python 解释器（用于运行 verify 脚本）
-  python: "auto"               # "auto" | "uv run python" | "poetry run python" | "python"
+fields:
 
-# ──────────────────────────────────────────────────
-# 迭代模式（v2.6 FIX-10 新增）
-# ──────────────────────────────────────────────────
-# v2.6 预留字段（当前仅文档层面支持，脚本尚未实现运行时检查）
-# 预留字段，计划 v3.0 实现运行时检查
-# 可选值：
-#   "standard"    → 完整 5 Phase（Verify 和 Review 分开执行）
-#   "lightweight" → 合并 Phase 3.5（独立验收）+ Phase 4（Verify+Review 由同一 Agent 执行）
-#                   条件：CR 数 ≤ 5 或 all CR are enhancement/bug_fix
-# 注意：lightweight 模式必须在 decisions.md 中声明放弃了哪些检查
-iteration_mode: "standard"
+  mode:
+    type: string
+    enum: ["interactive", "auto-loop"]
+    default: "interactive"
+    description: "运行模式。interactive = 交互式（人工确认节点），auto-loop = 全自动循环"
 
-# ──────────────────────────────────────────────────
-# Git Hooks 配置（v2.6 FIX-08 新增）
-# ──────────────────────────────────────────────────
-hooks:
-  commit_message_pattern: "default"
-  # "default"    → [模块] 动作：描述 (CR-xxx)
-  # "cr-suffix"  → 自由格式 (CR-xxx)    — CR 后缀必须有，格式不限
-  # "flexible"   → 完全自由格式          — 不做格式检查
-  # "custom"     → 用户自定义正则        — 见 commit_message_regex
-  commit_message_regex: ""  # 仅当 pattern=custom 时生效
+  toolchain:
+    type: object
+    description: "工具链配置，所有字段默认 auto（自动检测优先级：uv > poetry > pip）"
+    properties:
+      test_runner:
+        type: string
+        default: "auto"
+        description: '测试运行器。"auto" | "uv run pytest" | "poetry run pytest" | "pytest"'
+      linter:
+        type: string
+        default: "auto"
+        description: 'Lint 工具。"auto" | "uv run ruff check ." | "ruff check ."'
+      formatter:
+        type: string
+        default: "auto"
+        description: '格式化工具。"auto" | "uv run ruff format --check ." | "ruff format --check ."'
+      python:
+        type: string
+        default: "auto"
+        description: 'Python 解释器。"auto" | "uv run python" | "poetry run python" | "python"'
+      lint_required:
+        type: boolean
+        default: false
+        description: "Lint 是否为强制检查项。true 时 lint 工具缺失视为 FAIL，false 时视为 SKIP"
+      test_dir:
+        type: string
+        default: "tests/unit/"
+        description: "L1 单元测试目录路径（相对于项目根目录）"
 
-# ──────────────────────────────────────────────────
-# Interactive 模式参数
-# ──────────────────────────────────────────────────
-interactive:
-  # 编码后自动运行 verify 脚本（不等用户指令）
-  auto_verify: true
+  iteration_mode:
+    type: string
+    enum: ["standard", "lightweight"]
+    default: "standard"
+    description: |
+      迭代模式。[实验性 — v3.1 完善] 当前仅文档层面支持。
+      standard = 完整 5 Phase（Verify 和 Review 分开执行）
+      lightweight = 合并 Phase 3.5+4（Verify+Review 由同一 Agent 执行）
 
-  # 自动运行测试（不等用户指令）
-  auto_test: true
+  hooks:
+    type: object
+    description: "Git hooks 配置"
+    properties:
+      commit_message_pattern:
+        type: string
+        enum: ["default", "cr-suffix", "flexible", "custom"]
+        default: "default"
+        description: |
+          提交消息格式。
+          default = [模块] 动作：描述 (CR-xxx)
+          cr-suffix = 自由格式 (CR-xxx)
+          flexible = 完全自由格式
+          custom = 用户自定义正则
+      commit_message_regex:
+        type: string
+        default: ""
+        description: "自定义提交消息正则（仅当 pattern=custom 时生效）"
 
-  # 自动 git commit（设为 false 时需用户确认）
-  auto_commit: false
+  interactive:
+    type: object
+    description: "Interactive 模式参数"
+    properties:
+      auto_verify:
+        type: boolean
+        default: true
+        description: "编码后自动运行 verify 脚本"
+      auto_test:
+        type: boolean
+        default: true
+        description: "自动运行测试"
+      auto_commit:
+        type: boolean
+        default: false
+        description: "自动 git commit（false 时需用户确认）"
+      pause_points:
+        type: array
+        items: string
+        default: [requirement_approval, task_plan_approval, review_result, iteration_complete]
+        description: "必须暂停等待用户确认的节点列表"
 
-  # 必须暂停等待用户确认的节点
-  pause_points:
-    - requirement_approval     # 需求规格书确认
-    - task_plan_approval       # 任务拆分确认
-    - review_result            # 审查结果通报
-    - iteration_complete       # 迭代完成汇总
+  auto_loop:
+    type: object
+    description: "Auto Loop 模式参数"
+    properties:
+      max_retries_per_task:
+        type: integer
+        default: 2
+        description: "单任务最大重试次数（L0/L1 失败时重试）"
+      max_parallel_agents:
+        type: integer
+        default: 2
+        description: "最大并行 Agent 数"
+      stop_on_review_fail:
+        type: boolean
+        default: true
+        description: "审查失败后是否停止整个循环"
+      checkpoint_frequency:
+        type: string
+        enum: ["per_task", "per_batch"]
+        default: "per_task"
+        description: "检查点写入频率"
+      max_consecutive_failures:
+        type: integer
+        default: 3
+        description: "连续失败 N 次后停止整个循环"
+      timeout_per_task:
+        type: integer
+        default: 1800
+        description: "单任务执行超时（秒）"
+      report_interval:
+        type: integer
+        default: 300
+        description: "进度报告间隔（秒，写入 checkpoint）"
+      min_disk_mb:
+        type: integer
+        default: 100
+        description: "磁盘空间安全阈值（MB），低于此值 AutoLoop 停止"
+      claude_timeout:
+        type: integer
+        default: 7200
+        description: "Claude 单次执行超时（秒）"
+      no_progress_threshold:
+        type: integer
+        default: 3
+        description: "连续无进展重启阈值，达到此值 AutoLoop 停止"
+      claude_command:
+        type: string
+        default: "claude"
+        description: "Claude CLI 命令路径。默认 'claude'，可配置为绝对路径（如 '/usr/local/bin/claude'）"
 
-# ──────────────────────────────────────────────────
-# Auto Loop 模式参数
-# ──────────────────────────────────────────────────
-# 注意：run-baseline.py 生成的 baseline.json 中，E2E 相关字段（如 e2e_passed、
-# e2e_total 等）为可选字段，未配置 E2E 测试的项目可忽略。
-auto_loop:
-  # 单任务最大重试次数（L0/L1 失败时重试）
-  max_retries_per_task: 2
-
-  # 最大并行 Agent 数
-  max_parallel_agents: 2
-
-  # 审查失败后是否停止整个循环
-  stop_on_review_fail: true
-
-  # 检查点写入频率
-  # per_task: 每完成一个任务写一次
-  # per_batch: 每完成一批任务写一次
-  checkpoint_frequency: "per_task"
-
-  # 连续失败 N 次后停止整个循环
-  max_consecutive_failures: 3
-
-  # 单任务执行超时（秒）
-  timeout_per_task: 1800
-
-  # 进度报告间隔（秒，写入 checkpoint）
-  report_interval: 300
+  snapshot:
+    type: object
+    description: "[v3.1 计划] 上下文快照配置。当前由 Agent 协议驱动，此配置预留。"
+    properties:
+      enabled:
+        type: boolean
+        default: true
+        description: "是否启用滚动快照"
+      update_frequency:
+        type: string
+        enum: ["per_step", "per_task"]
+        default: "per_step"
+        description: "更新频率"

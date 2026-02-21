@@ -1,28 +1,28 @@
 #!/usr/bin/env python3
 """
-upgrade-project.py — 将已有项目升级到 dev-framework v2.6
+upgrade-project.py — 将已有项目升级到 dev-framework v3.0
 
 用法:
     python dev-framework/scripts/upgrade-project.py \
-        --project-dir "D:/my-project"
+        --project-dir "<项目路径>"
 
     # 仅预览变更，不实际执行
     python dev-framework/scripts/upgrade-project.py \
-        --project-dir "D:/my-project" --dry-run
+        --project-dir "<项目路径>" --dry-run
 
     # 跳过备份
     python dev-framework/scripts/upgrade-project.py \
-        --project-dir "D:/my-project" --no-backup
+        --project-dir "<项目路径>" --no-backup
 
     # 强制重新执行已完成的步骤
     python dev-framework/scripts/upgrade-project.py \
-        --project-dir "D:/my-project" --force
+        --project-dir "<项目路径>" --force
 
 执行后:
     1. 自动检测当前框架版本
     2. 备份将修改的文件
-    3. 按序执行 16 步迁移
-    4. 写入版本标记 .framework-version = "2.6"
+    3. 按序执行升级迁移（20 步，Step 16 已由 Step 21 替代）
+    4. 写入版本标记 .framework-version = "3.0"
 """
 
 from __future__ import annotations
@@ -53,6 +53,9 @@ from fw_utils import (
 _init_spec = importlib.util.spec_from_file_location(
     "init_project", Path(__file__).resolve().parent / "init-project.py"
 )
+if _init_spec is None or _init_spec.loader is None:
+    print("ERROR: init-project.py 未找到，upgrade-project.py 无法工作")
+    sys.exit(1)
 _init_module = importlib.util.module_from_spec(_init_spec)
 _init_spec.loader.exec_module(_init_module)
 _setup_git_hooks = _init_module._setup_git_hooks
@@ -63,7 +66,7 @@ try:
 except ImportError:
     yaml = None  # type: ignore
 
-TARGET_VERSION = "2.6"
+TARGET_VERSION = "3.0"
 
 
 # ============================================================
@@ -161,13 +164,26 @@ def migrate_detect_current_version(ctx: UpgradeContext) -> MigrateResult:
         return MigrateResult("applied", f"检测到版本标记: v{ver}")
 
     # 特征检测：检查是否有 iteration-* 目录（旧版命名）
-    has_old_dirs = any(
-        d.name.startswith("iteration-")
-        for d in ctx.dev_state.iterdir() if d.is_dir()
-    )
+    has_old_dirs = False
+    if ctx.dev_state.exists():
+        has_old_dirs = any(
+            d.name.startswith("iteration-")
+            for d in ctx.dev_state.iterdir() if d.is_dir()
+        )
     # 特征检测：检查 run-config.yaml 是否缺少 toolchain
     config = load_run_config(ctx.project_dir)
     has_toolchain = "toolchain" in config
+
+    # v3.0 特征检测：检查 .claude/CLAUDE.md 是否包含合并标记
+    claude_md = ctx.project_dir / ".claude" / "CLAUDE.md"
+    if claude_md.exists():
+        try:
+            claude_content = claude_md.read_text(encoding="utf-8")
+            if "Dev-Framework 运行时手册 v3.0" in claude_content:
+                ctx.current_version = "3.0"
+                return MigrateResult("applied", "特征检测: CLAUDE.md 包含 v3.0 运行时手册")
+        except Exception:
+            pass
 
     if has_old_dirs:
         ctx.current_version = "pre-2.6"
@@ -246,6 +262,11 @@ def migrate_create_backup(ctx: UpgradeContext) -> MigrateResult:
     gi = ctx.project_dir / ".gitignore"
     if gi.exists():
         files_to_backup.append(gi)
+
+    # context-snapshot.md
+    cs = ctx.dev_state / "context-snapshot.md"
+    if cs.exists():
+        files_to_backup.append(cs)
 
     # 执行备份
     manifest_lines = []
@@ -470,7 +491,15 @@ def migrate_run_config(ctx: UpgradeContext) -> MigrateResult:
 # ============================================================
 
 def migrate_acceptance_criteria(ctx: UpgradeContext) -> MigrateResult:
-    """将 acceptance_criteria 从 list 转为 dict 格式。"""
+    """将 acceptance_criteria 转为 v3.0 schema 格式（functional 分组 + 任务 ID 前缀）。
+
+    支持三种输入格式：
+    1. 旧 list 格式: ["条件1", "条件2"]
+       → {functional: [{id: "XX-AC1", desc: "条件1", status: "FAIL"}, ...]}
+    2. 旧 dict 格式: {"AC-1": {text: "...", met: true/false}}
+       → {functional: [{id: "XX-AC1", desc: "...", status: "PASS"/"FAIL"}, ...]}
+    3. 已是新格式（含 functional key）→ 跳过
+    """
     task_files = _find_task_files(ctx.dev_state)
     if not task_files:
         return MigrateResult("skipped", "未找到任务文件")
@@ -481,23 +510,61 @@ def migrate_acceptance_criteria(ctx: UpgradeContext) -> MigrateResult:
         if not task:
             continue
         ac = task.get("acceptance_criteria")
-        if not isinstance(ac, list):
+        if ac is None:
             continue
 
-        # list -> dict: [{text: "xxx"}] 或 ["xxx"] -> {"AC-1": {text: "xxx", met: false}}
-        new_ac = {}
-        for i, item in enumerate(ac, 1):
-            key = f"AC-{i}"
-            if isinstance(item, str):
-                new_ac[key] = {"text": item, "met": False}
-            elif isinstance(item, dict):
-                item.setdefault("met", False)
-                new_ac[key] = item
-            else:
-                new_ac[key] = {"text": str(item), "met": False}
+        # 已是新格式（含 functional key）→ 跳过
+        if isinstance(ac, dict) and "functional" in ac:
+            _log(ctx, f"已是新格式，跳过: {task_path.name}")
+            continue
+
+        # 从任务 id 字段提取前缀（如 "CR-001" → "CR-001"）
+        task_id = task.get("id", "TASK")
+
+        functional_items = []
+
+        if isinstance(ac, list):
+            if not ac:  # 空列表，跳过转换
+                _log(ctx, f"acceptance_criteria 为空列表，跳过: {task_path.name}")
+                continue
+            # 格式 1: 旧 list 格式
+            for i, item in enumerate(ac, 1):
+                ac_id = f"{task_id}-AC{i}"
+                if isinstance(item, str):
+                    desc = item
+                elif isinstance(item, dict):
+                    desc = item.get("text", item.get("desc", str(item)))
+                else:
+                    desc = str(item)
+                functional_items.append({
+                    "id": ac_id,
+                    "desc": desc,
+                    "status": "FAIL",
+                })
+        elif isinstance(ac, dict):
+            # 格式 2: 旧 dict 格式 {"AC-1": {text: "...", met: true/false}}
+            for i, (key, val) in enumerate(ac.items(), 1):
+                ac_id = f"{task_id}-AC{i}"
+                if isinstance(val, dict):
+                    desc = val.get("text", val.get("desc", str(val)))
+                    met = val.get("met", False)
+                    status = "PASS" if met else "FAIL"
+                else:
+                    desc = str(val)
+                    status = "FAIL"
+                functional_items.append({
+                    "id": ac_id,
+                    "desc": desc,
+                    "status": status,
+                })
+        else:
+            _log(ctx, f"未知 acceptance_criteria 类型，跳过: {task_path.name}")
+            continue
+
+        new_ac = {"functional": functional_items}
 
         if ctx.dry_run:
-            print(f"    [dry-run] 转换: {task_path.name} ({len(ac)} 项)")
+            print(f"    [dry-run] 转换: {task_path.name} ({len(functional_items)} 项)")
             changes += 1
             continue
 
@@ -507,7 +574,7 @@ def migrate_acceptance_criteria(ctx: UpgradeContext) -> MigrateResult:
         changes += 1
 
     if changes == 0:
-        return MigrateResult("skipped", "所有任务的 acceptance_criteria 已是 dict 格式")
+        return MigrateResult("skipped", "所有任务的 acceptance_criteria 已是新格式")
     return MigrateResult("applied", f"转换 {changes} 个任务文件", changes)
 
 
@@ -622,11 +689,10 @@ _SECTION_5_2 = """\
 
 ## 5.2 Git 提交规范
 
-<!-- v2.6 FIX-20: 框架文件禁止提交 Git -->
+<!-- 框架文件禁止提交 Git -->
 
 以下文件/目录**禁止**提交到 Git（.gitignore 已自动配置）：
 - `.claude/dev-state/` — 框架状态文件
-- `.claude/agents/` — Agent 协议副本
 - `iter-*/` / `iteration-*/` — 迭代记录
 - 原因：双端开发场景下框架文件会产生冲突
 """
@@ -646,6 +712,11 @@ def migrate_claude_md(ctx: UpgradeContext) -> MigrateResult:
     # 检查是否已包含 5.1
     if "已知坑点" in content and "5.1" in content:
         return MigrateResult("skipped", "CLAUDE.md 已包含 5.1 章节")
+
+    # v3.0: 如果框架模板存在，由 Step 17 (generate_merged_claude_md) 统一处理
+    fw_tmpl = _get_framework_dir() / "templates" / "project" / "CLAUDE-framework.md.tmpl"
+    if fw_tmpl.exists():
+        return MigrateResult("skipped", "已是 v3.0 格式，由 Step 17 (generate_merged_claude_md) 处理")
 
     # 查找插入位置：在 "## 5. 开发框架" 章节的末尾（下一个 ## 之前）
     # 或者在包含 "开发框架" 的章节后
@@ -768,27 +839,20 @@ def migrate_experience_log(ctx: UpgradeContext) -> MigrateResult:
 # ============================================================
 
 def migrate_agent_protocols(ctx: UpgradeContext) -> MigrateResult:
-    """从框架 agents/ 复制 5 个 Agent .md 到 .claude/agents/。"""
-    framework_agents = _get_framework_dir() / "agents"
-    if not framework_agents.exists():
-        return MigrateResult("error", f"框架 agents/ 目录不存在: {framework_agents}")
+    """v3.0: 清理项目中残留的 .claude/agents/ 目录（已由 Step 3 备份）。"""
+    agents_dir = ctx.project_dir / ".claude" / "agents"
+    if not agents_dir.exists():
+        return MigrateResult("skipped", "项目中无 .claude/agents/ 目录")
 
-    target_agents = ctx.project_dir / ".claude" / "agents"
-
-    agent_files = list(framework_agents.glob("*.md"))
+    agent_files = list(agents_dir.glob("*.md"))
     if not agent_files:
-        return MigrateResult("error", "框架 agents/ 目录下无 .md 文件")
+        return MigrateResult("skipped", ".claude/agents/ 目录为空")
 
     if ctx.dry_run:
-        names = [f.name for f in agent_files]
-        return MigrateResult("skipped", f"[dry-run] 将覆盖: {', '.join(names)}")
+        return MigrateResult("skipped", f"[dry-run] 将删除 .claude/agents/（{len(agent_files)} 个文件）")
 
-    target_agents.mkdir(parents=True, exist_ok=True)
-    for src in agent_files:
-        shutil.copy2(src, target_agents / src.name)
-        _log(ctx, f"覆盖: {src.name}")
-
-    return MigrateResult("applied", f"覆盖 {len(agent_files)} 个 Agent 协议文件", len(agent_files))
+    shutil.rmtree(agents_dir)
+    return MigrateResult("applied", f"删除 .claude/agents/（{len(agent_files)} 个文件，已由 Step 3 备份）", len(agent_files))
 
 
 # ============================================================
@@ -828,11 +892,343 @@ def migrate_gitignore(ctx: UpgradeContext) -> MigrateResult:
 
 
 # ============================================================
-# Step 16: write_version_marker
+# Step 16: v3.0 generate_merged_claude_md
 # ============================================================
 
-def migrate_write_version_marker(ctx: UpgradeContext) -> MigrateResult:
-    """写入 .framework-version = "2.6"。"""
+def migrate_generate_merged_claude_md(ctx: UpgradeContext) -> MigrateResult:
+    """从 CLAUDE-framework.md.tmpl 生成合并版 .claude/CLAUDE.md。"""
+    try:
+        return _generate_merged_claude_md_impl(ctx)
+    except Exception as e:
+        # 回退：执行 Step 11 的基本逻辑，确保 CLAUDE.md 至少得到更新
+        print(f"    [WARN] generate_merged_claude_md 失败: {e}")
+        print(f"    [WARN] 回退到基本 CLAUDE.md 更新（Step 11 逻辑）...")
+        try:
+            return _generate_merged_claude_md_fallback(ctx)
+        except Exception as fallback_err:
+            return MigrateResult("error", f"主逻辑和回退均失败: {e} / {fallback_err}")
+
+
+def _generate_merged_claude_md_fallback(ctx: UpgradeContext) -> MigrateResult:
+    """回退逻辑：执行 Step 11 的基本 CLAUDE.md 更新（插入 5.1/5.2 章节）。"""
+    claude_md_path = ctx.project_dir / ".claude" / "CLAUDE.md"
+    if not claude_md_path.exists():
+        claude_md_path = ctx.project_dir / "CLAUDE.md"
+    if not claude_md_path.exists():
+        return MigrateResult("applied", "[fallback] 未找到 CLAUDE.md，跳过基本更新", 0)
+
+    content = claude_md_path.read_text(encoding="utf-8")
+
+    # 如果已包含 5.1 章节，无需重复插入
+    if "已知坑点" in content and "5.1" in content:
+        return MigrateResult("applied", "[fallback] CLAUDE.md 已包含 5.1 章节", 0)
+
+    if ctx.dry_run:
+        return MigrateResult("skipped", "[fallback][dry-run] 将插入 5.1/5.2 章节")
+
+    # 查找插入位置
+    insert_pos = None
+
+    match_5 = re.search(r"^## 5\..*$", content, re.MULTILINE)
+    if match_5:
+        match_next = re.search(r"\n---\s*\n+## 6\.", content[match_5.end():])
+        if match_next:
+            insert_pos = match_5.end() + match_next.start()
+        else:
+            match_next = re.search(r"\n## \d+\.", content[match_5.end():])
+            if match_next:
+                insert_pos = match_5.end() + match_next.start()
+
+    if insert_pos is None:
+        match_fw = re.search(r"^## .*开发框架.*$", content, re.MULTILINE)
+        if match_fw:
+            match_next = re.search(r"\n## ", content[match_fw.end():])
+            if match_next:
+                insert_pos = match_fw.end() + match_next.start()
+            else:
+                insert_pos = len(content)
+
+    if insert_pos is None:
+        insert_pos = len(content)
+
+    new_content = content[:insert_pos] + _SECTION_5_1 + _SECTION_5_2 + content[insert_pos:]
+    claude_md_path.write_text(new_content, encoding="utf-8")
+    return MigrateResult("applied", f"[fallback] 插入 5.1/5.2 章节到 {claude_md_path.relative_to(ctx.project_dir)}", 2)
+
+
+def _generate_merged_claude_md_impl(ctx: UpgradeContext) -> MigrateResult:
+    """generate_merged_claude_md 的主逻辑实现。"""
+    claude_md_path = ctx.project_dir / ".claude" / "CLAUDE.md"
+    if not claude_md_path.exists():
+        claude_md_path = ctx.project_dir / "CLAUDE.md"
+
+    # 检查是否已是 v3.0 合并版
+    if claude_md_path.exists():
+        content = claude_md_path.read_text(encoding="utf-8")
+        if "Dev-Framework 运行时手册 v3.0" in content:
+            return MigrateResult("skipped", "CLAUDE.md 已包含 v3.0 运行时手册")
+
+    # 读取模板
+    framework_dir = _get_framework_dir()
+    fw_tmpl = framework_dir / "templates" / "project" / "CLAUDE-framework.md.tmpl"
+    if not fw_tmpl.exists():
+        return MigrateResult("error", f"框架模板不存在: {fw_tmpl}")
+
+    # 提取现有 CLAUDE.md 中的自定义坑点内容
+    gotchas_content = ""
+    if claude_md_path.exists():
+        existing = claude_md_path.read_text(encoding="utf-8")
+        # 尝试提取 5.1 或 十一 章节内容
+        for pattern in [
+            r"## 5\.1\s+已知坑点与最佳实践\s*\n(.*?)(?=\n---|\n## [0-9]|\n## [一-龥]|\Z)",
+            r"## 十一、已知坑点与最佳实践\s*\n(.*?)(?=\n---|\n## |\Z)",
+        ]:
+            match = re.search(pattern, existing, re.DOTALL)
+            if match:
+                raw = match.group(1).strip()
+                # 过滤掉纯注释行
+                lines = [l for l in raw.splitlines() if l.strip() and not l.strip().startswith("<!--")]
+                if lines:
+                    gotchas_content = "\n".join(lines)
+                break
+
+    if ctx.dry_run:
+        msg = f"[dry-run] 将生成合并版 CLAUDE.md"
+        if gotchas_content:
+            msg += f"（保留 {len(gotchas_content.splitlines())} 行自定义坑点）"
+        return MigrateResult("skipped", msg)
+
+    # 生成合并版
+    fw_content = fw_tmpl.read_text(encoding="utf-8")
+    fw_content = fw_content.replace("{{FRAMEWORK_PATH}}", str(framework_dir))
+    fw_content = fw_content.replace("{{PROJECT_GOTCHAS}}", gotchas_content)
+
+    # 保留已有的项目配置部分（如果有）
+    target_path = ctx.project_dir / ".claude" / "CLAUDE.md"
+
+    # 如果已有 CLAUDE.md 包含项目配置（非纯框架内容），保留项目配置 + 追加框架内容
+    if target_path.exists():
+        existing = target_path.read_text(encoding="utf-8")
+        # 检查是否有项目特定配置（section 1-4, 6, 7）
+        if "## 1. 项目概述" in existing or "## 项目概述" in existing:
+            # 移除旧的框架章节（5.x, 8），保留项目配置
+            # 简单策略：在已有内容后追加框架手册
+            # 先移除旧框架引用
+            cleaned = existing
+            # 移除旧的上下文校准协议（section 8）
+            cleaned = re.sub(
+                r"\n---\s*\n+## 8\.\s*上下文校准协议.*$",
+                "",
+                cleaned,
+                flags=re.DOTALL,
+            )
+            # 移除旧的 5.1/5.2 （框架相关内容）
+            cleaned = re.sub(
+                r"\n---\s*\n+## 5\.1\s+已知坑点.*?(?=\n---\s*\n+## [67]\.)",
+                "",
+                cleaned,
+                flags=re.DOTALL,
+            )
+            cleaned = re.sub(
+                r"\n---\s*\n+## 5\.2\s+Git 提交规范.*?(?=\n---\s*\n+## [67]\.)",
+                "",
+                cleaned,
+                flags=re.DOTALL,
+            )
+            # 更新 section 5 为简短引用
+            cleaned = re.sub(
+                r"## 5\.\s*开发框架.*?(?=\n---\s*\n+## [67]\.)",
+                "## 5. 开发框架\n\n本项目使用 dev-framework v3.0 管理。\n完整框架运行时手册已合并到 `.claude/CLAUDE.md`，作为系统提示自动加载。\n",
+                cleaned,
+                flags=re.DOTALL,
+            )
+            target_path.write_text(
+                cleaned.rstrip() + "\n\n---\n\n" + fw_content,
+                encoding="utf-8",
+            )
+        else:
+            # 纯框架文件，直接替换
+            target_path.write_text(fw_content, encoding="utf-8")
+    else:
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        target_path.write_text(fw_content, encoding="utf-8")
+
+    changes = 1
+    if gotchas_content:
+        changes += 1
+    return MigrateResult(
+        "applied",
+        f"生成合并版 CLAUDE.md" + (f"（保留自定义坑点）" if gotchas_content else ""),
+        changes,
+    )
+
+
+# ============================================================
+# Step 17: v3.0 create_context_snapshot
+# ============================================================
+
+def migrate_create_context_snapshot(ctx: UpgradeContext) -> MigrateResult:
+    """创建初始 context-snapshot.md。"""
+    snapshot_path = ctx.dev_state / "context-snapshot.md"
+
+    if snapshot_path.exists():
+        return MigrateResult("skipped", "context-snapshot.md 已存在")
+
+    if ctx.dry_run:
+        return MigrateResult("skipped", "[dry-run] 将创建 context-snapshot.md")
+
+    # 从 session-state.json 读取当前状态
+    state = load_session_state(ctx.project_dir)
+    mode = "interactive"
+    iteration = "iter-0"
+    phase = "phase_0"
+    completed = 0
+    total = 0
+
+    if state:
+        mode = state.get("mode", "interactive")
+        iteration = state.get("current_iteration", "iter-0")
+        phase = state.get("current_phase", "phase_0")
+        progress = state.get("progress", {})
+        completed = progress.get("completed", 0)
+        total = progress.get("total_tasks", 0)
+
+    now = datetime.now(timezone.utc).isoformat()
+
+    # 优先使用模板文件
+    framework_dir = _get_framework_dir()
+    snapshot_tmpl = framework_dir / "templates" / "project" / "context-snapshot.md.tmpl"
+    if snapshot_tmpl.exists():
+        content = snapshot_tmpl.read_text(encoding="utf-8")
+        replacements = {
+            "{{TIMESTAMP}}": now,
+            "{{MODE}}": mode,
+            "{{ITERATION}}": iteration,
+            "{{PHASE}}": phase,
+            "{{TASK_ID}}": "无",
+            "{{STATUS}}": "N/A",
+            "{{CURRENT_STEP}}": "N/A",
+            "{{TOOLCHAIN}}": "auto",
+            "{{ITERATION_MODE}}": "standard",
+            "{{TOTAL}}": str(total),
+            "{{COMPLETED}}": str(completed),
+            "{{IN_PROGRESS}}": "0",
+            "{{PENDING}}": str(total - completed),
+            "{{COMPLETED_LIST}}": "无" if completed == 0 else "（详见 tasks/）",
+            "{{IN_PROGRESS_DETAIL}}": "无",
+            "{{PENDING_LIST}}": "无" if total == 0 else "（详见 tasks/）",
+            "{{DEPENDENCIES}}": "无",
+            "{{TECH_DECISIONS}}": "从 v2.6 升级到 v3.0，初始快照",
+            "{{FOUND_ISSUES}}": "无",
+            "{{TECH_DETAILS}}": "无",
+            "{{L1_PASSED}}": "0",
+            "{{L1_FAILED}}": "0",
+            "{{L2_PASSED}}": "0",
+            "{{PENDING_VERIFY_LIST}}": "无",
+            "{{REWORK_TASKS}}": "无",
+            "{{NEXT_ACTION_1}}": "确认升级完成",
+            "{{NEXT_ACTION_2}}": "启动 Claude Code 继续开发",
+            "{{NEXT_ACTION_3}}": "按需开始新迭代",
+        }
+        for placeholder, value in replacements.items():
+            content = content.replace(placeholder, value)
+    else:
+        # fallback: 内联生成
+        content = (
+            f"# 当前上下文快照\n"
+            f"> 最后更新: {now}\n\n"
+            f"## 状态\n"
+            f"- 模式: {mode} | 迭代: {iteration} | 阶段: {phase}\n"
+            f"- 当前任务: 无\n"
+            f"- 运行配置: toolchain=auto, iteration_mode=standard\n\n"
+            f"## 进度总览\n"
+            f"- 总计: {total} CR | 完成: {completed} | 进行中: 0 | 待开始: {total - completed}\n\n"
+            f"## 关键上下文\n"
+            f"- 从 v2.6 升级到 v3.0，初始快照\n\n"
+            f"## 下一步\n"
+            f"1. 确认升级完成\n"
+            f"2. 启动 Claude Code 继续开发\n"
+        )
+    snapshot_path.write_text(content, encoding="utf-8")
+    return MigrateResult("applied", "创建 context-snapshot.md", 1)
+
+
+# ============================================================
+# Step 18: v3.0 update_run_config_snapshot
+# ============================================================
+
+def migrate_update_run_config_snapshot(ctx: UpgradeContext) -> MigrateResult:
+    """在 run-config.yaml 中添加 snapshot 配置块。"""
+    rc_path = ctx.dev_state / "run-config.yaml"
+    if not rc_path.exists():
+        return MigrateResult("skipped", "run-config.yaml 不存在")
+
+    content = rc_path.read_text(encoding="utf-8")
+
+    if "snapshot:" in content:
+        return MigrateResult("skipped", "run-config.yaml 已包含 snapshot 配置")
+
+    if ctx.dry_run:
+        return MigrateResult("skipped", "[dry-run] 将添加 snapshot 配置块")
+
+    snapshot_block = (
+        "\n# ──────────────────────────────────────────────────\n"
+        "# 上下文快照配置（v3.0 新增）\n"
+        "# ──────────────────────────────────────────────────\n"
+        "snapshot:\n"
+        "  # 是否启用滚动快照\n"
+        "  enabled: true\n"
+        "  # 更新频率: per_step(每个 CR step 后) | per_task(每个 CR 完成后)\n"
+        '  update_frequency: "per_step"\n'
+    )
+
+    content = content.rstrip() + "\n" + snapshot_block
+    rc_path.write_text(content, encoding="utf-8")
+    return MigrateResult("applied", "添加 snapshot 配置块", 1)
+
+
+# ============================================================
+# Step 19: v3.0 update_gitignore_v3
+# ============================================================
+
+def migrate_update_gitignore_v3(ctx: UpgradeContext) -> MigrateResult:
+    """在 .gitignore 中添加 context-snapshot.md。"""
+    gitignore = ctx.project_dir / ".gitignore"
+
+    if not gitignore.exists():
+        if ctx.dry_run:
+            return MigrateResult("skipped", "[dry-run] .gitignore 不存在")
+        # 创建带有规则的 .gitignore
+        gitignore.write_text("**/context-snapshot.md\n", encoding="utf-8")
+        return MigrateResult("applied", "创建 .gitignore 并添加 context-snapshot.md", 1)
+
+    content = gitignore.read_text(encoding="utf-8")
+    if "context-snapshot.md" in content:
+        return MigrateResult("skipped", ".gitignore 已包含 context-snapshot.md 规则")
+
+    if ctx.dry_run:
+        return MigrateResult("skipped", "[dry-run] 将添加 context-snapshot.md 到 .gitignore")
+
+    # 在框架规则块中添加
+    marker_end = "# === dev-framework: 自动生成规则结束 ==="
+    if marker_end in content:
+        content = content.replace(
+            marker_end,
+            "**/context-snapshot.md\n\n" + marker_end,
+        )
+    else:
+        content = content.rstrip() + "\n**/context-snapshot.md\n"
+
+    gitignore.write_text(content, encoding="utf-8")
+    return MigrateResult("applied", "添加 context-snapshot.md 到 .gitignore", 1)
+
+
+# ============================================================
+# Step 20: write_version_marker_v3
+# ============================================================
+
+def migrate_write_version_marker_v3(ctx: UpgradeContext) -> MigrateResult:
+    """写入 .framework-version = "3.0"。"""
     version_file = ctx.dev_state / ".framework-version"
 
     if version_file.exists():
@@ -863,12 +1259,17 @@ MIGRATE_STEPS = [
     ("acceptance_criteria",     "BC-5: acceptance_criteria 格式", migrate_acceptance_criteria),
     ("add_priority",            "BC-6: 添加 priority 字段",     migrate_add_priority),
     ("review_issues",           "BC-9: review_issues 格式",     migrate_review_issues),
-    ("claude_md",               "CLAUDE.md 章节合并",           migrate_claude_md),
+    ("claude_md",               "[v2.6→v3.0] CLAUDE.md 章节合并（pre-v3.0 项目）", migrate_claude_md),
     ("experience_log",          "BC-3: experience-log 迁移",    migrate_experience_log),
-    ("agent_protocols",         "Agent 协议全量覆盖",           migrate_agent_protocols),
+    ("agent_protocols",         "v3.0: 清理旧 agents/ 目录",    migrate_agent_protocols),
     ("git_hooks",               "BC-10: Git hooks 重新生成",    migrate_git_hooks),
     ("gitignore",               ".gitignore 追加",              migrate_gitignore),
-    ("write_version_marker",    "写入版本标记",                 migrate_write_version_marker),
+    # v3.0 新增迁移步骤
+    ("generate_merged_claude_md", "v3.0: 生成合并版 CLAUDE.md", migrate_generate_merged_claude_md),
+    ("create_context_snapshot",   "v3.0: 创建 context-snapshot", migrate_create_context_snapshot),
+    ("update_run_config_snapshot","v3.0: 添加 snapshot 配置",    migrate_update_run_config_snapshot),
+    ("update_gitignore_v3",       "v3.0: .gitignore 更新",      migrate_update_gitignore_v3),
+    ("write_version_marker_v3",   "写入 v3.0 版本标记",         migrate_write_version_marker_v3),
 ]
 
 
@@ -942,7 +1343,7 @@ def run_upgrade(ctx: UpgradeContext) -> bool:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="将已有项目升级到 dev-framework v2.6"
+        description="将已有项目升级到 dev-framework v3.0"
     )
     parser.add_argument(
         "--project-dir", required=True,
