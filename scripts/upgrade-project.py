@@ -21,7 +21,7 @@ upgrade-project.py — 将已有项目升级到 dev-framework v3.0
 执行后:
     1. 自动检测当前框架版本
     2. 备份将修改的文件
-    3. 按序执行升级迁移（20 步，Step 16 已由 Step 21 替代）
+    3. 按序执行升级迁移（20 步：基础 15 步 + v3.0 新增 5 步）
     4. 写入版本标记 .framework-version = "3.0"
 """
 
@@ -713,10 +713,10 @@ def migrate_claude_md(ctx: UpgradeContext) -> MigrateResult:
     if "已知坑点" in content and "5.1" in content:
         return MigrateResult("skipped", "CLAUDE.md 已包含 5.1 章节")
 
-    # v3.0: 如果框架模板存在，由 Step 17 (generate_merged_claude_md) 统一处理
+    # v3.0: 如果框架模板存在，由 Step 16 (generate_merged_claude_md) 统一处理
     fw_tmpl = _get_framework_dir() / "templates" / "project" / "CLAUDE-framework.md.tmpl"
     if fw_tmpl.exists():
-        return MigrateResult("skipped", "已是 v3.0 格式，由 Step 17 (generate_merged_claude_md) 处理")
+        return MigrateResult("skipped", "已是 v3.0 格式，由 Step 16 (generate_merged_claude_md) 处理")
 
     # 查找插入位置：在 "## 5. 开发框架" 章节的末尾（下一个 ## 之前）
     # 或者在包含 "开发框架" 的章节后
@@ -1015,7 +1015,9 @@ def _generate_merged_claude_md_impl(ctx: UpgradeContext) -> MigrateResult:
             # 简单策略：在已有内容后追加框架手册
             # 先移除旧框架引用
             cleaned = existing
-            # 移除旧的上下文校准协议（section 8）
+            # 移除旧的上下文校准协议（section 8 到文件末尾）
+            # 注意：re.DOTALL 使 .* 匹配换行符，会删除 section 8 之后的所有内容
+            # 标准 CLAUDE.md 模板最多到 section 7，因此不会误删项目自定义内容
             cleaned = re.sub(
                 r"\n---\s*\n+## 8\.\s*上下文校准协议.*$",
                 "",
@@ -1261,6 +1263,7 @@ MIGRATE_STEPS = [
     ("review_issues",           "BC-9: review_issues 格式",     migrate_review_issues),
     ("claude_md",               "[v2.6→v3.0] CLAUDE.md 章节合并（pre-v3.0 项目）", migrate_claude_md),
     ("experience_log",          "BC-3: experience-log 迁移",    migrate_experience_log),
+    # 注：此步骤在 v2.6 中是"复制 Agent 文件"，v3.0 中改为"清理旧 agents/ 目录"
     ("agent_protocols",         "v3.0: 清理旧 agents/ 目录",    migrate_agent_protocols),
     ("git_hooks",               "BC-10: Git hooks 重新生成",    migrate_git_hooks),
     ("gitignore",               ".gitignore 追加",              migrate_gitignore),

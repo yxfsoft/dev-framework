@@ -47,7 +47,7 @@ python dev-framework/scripts/upgrade-project.py --project-dir "<项目路径>"
 
 v3.0 核心变化：Agent 协议 + 质量门控合并到 `.claude/CLAUDE.md`（系统提示层，永不压缩），新增滚动上下文快照和 AutoLoop 外围循环脚本。
 
-详见 [USER-GUIDE.md § 九、从 v2.6 升级到 v3.0](USER-GUIDE.md#九从-v26-升级到-v30)。
+详见 [USER-GUIDE.md § 十、从 v2.6 升级到 v3.0](USER-GUIDE.md#十从-v26-升级到-v30)。
 
 ### 新项目初始化
 

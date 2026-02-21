@@ -74,7 +74,6 @@ python dev-framework/scripts/init-project.py \
 │   │   ├── session-state.json   ← current_phase: "phase_0"
 │   │   ├── baseline.json        ← 空基线（L1=0, L2=0）
 │   │   ├── run-config.yaml      ← 运行模式配置
-│   │   ├── experience-log.md    # 已废弃，历史数据保留。新经验记录请使用 CLAUDE.md 的「已知坑点与最佳实践」章节
 │   │   └── iter-0/              ← 首次开发 = 第 0 轮迭代
 │   │       ├── manifest.json    ← mode: "init"
 │   │       ├── requirement-raw.md
@@ -388,7 +387,7 @@ Analyst 会花更多时间在 Phase 1 读代码理解现状，然后再做需求
 
 ---
 
-## 四点五、场景 D: 紧急修复（Hotfix）
+## 五、场景 D: 紧急修复（Hotfix）
 
 当用户声明"紧急修复"或"调试"时，可使用 hotfix 快速通道：
 
@@ -402,7 +401,7 @@ Analyst 会花更多时间在 Phase 1 读代码理解现状，然后再做需求
 
 ---
 
-## 五、Interactive 模式 vs Auto Loop 模式
+## 六、Interactive 模式 vs Auto Loop 模式
 
 > **v3.0 说明**：Agent 协议和质量门控规则已合并到 `.claude/CLAUDE.md` 中，
 > 作为系统提示自动加载。无论 Interactive 还是 Auto Loop 模式，
@@ -476,7 +475,7 @@ mode: "auto-loop"  # 改这一行就行
 
 ---
 
-## 六、需求输入深度对比
+## 七、需求输入深度对比
 
 ### 一句话需求的完整旅程
 
@@ -602,7 +601,7 @@ Step 5: 你审批（快速确认即可）
 
 ---
 
-## 七、开发过程中的常用命令
+## 八、开发过程中的常用命令
 
 ### 查看当前状态
 
@@ -720,9 +719,35 @@ python dev-framework/scripts/generate-report.py \
     --iteration-id "iter-1"
 ```
 
+### AutoLoop 运行（v3.0 新增）
+
+```bash
+python dev-framework/scripts/auto-loop-runner.py \
+    --project-dir "<项目路径>" \
+    --iteration-id "iter-1" \
+    --max-restarts 10
+```
+
+该脚本会在 Claude 会话因上下文耗尽结束时自动重启，并监控进度和安全阀。
+
+### 项目升级
+
+```bash
+# 预览变更
+python dev-framework/scripts/upgrade-project.py \
+    --project-dir "<项目路径>" \
+    --dry-run
+
+# 正式升级
+python dev-framework/scripts/upgrade-project.py \
+    --project-dir "<项目路径>"
+```
+
+详见[十、从 v2.6 升级到 v3.0](#十从-v26-升级到-v30)。
+
 ---
 
-## 八、完整场景走读：从接手到交付
+## 九、完整场景走读：从接手到交付
 
 以下是一个接手项目 + 两轮迭代的完整时间线。
 
@@ -851,7 +876,7 @@ L1: 267 passed (+29 new)
 
 ---
 
-## 九、从 v2.6 升级到 v3.0
+## 十、从 v2.6 升级到 v3.0
 
 ### v3.0 主要变化
 
@@ -875,6 +900,15 @@ L1: 267 passed (+29 new)
 
 ### 升级步骤
 
+**前提条件：**
+
+- Python 3.10+ 已安装
+- PyYAML 已安装（`pip install PyYAML>=6.0`）
+- 项目目录已存在 `.claude/dev-state/` 目录
+
+> **版本兼容说明**：升级脚本不仅支持 v2.6，还支持更早版本（如 pre-v2.6）。
+> 脚本会通过特征检测自动判断当前版本，已完成的步骤自动跳过。
+
 #### Step 1：预览变更（dry-run）
 
 ```bash
@@ -892,7 +926,7 @@ python <框架路径>/scripts/upgrade-project.py \
     --project-dir "<项目路径>"
 ```
 
-脚本自动执行 20 步迁移（v2.6 的 16 步 + v3.0 新增的 4 步），已完成的步骤会自动跳过。
+脚本自动执行 20 步迁移（基础 15 步 + v3.0 新增 5 步），已完成的步骤会自动跳过。
 
 #### Step 3：验证
 
@@ -921,7 +955,11 @@ grep "snapshot:" .claude/dev-state/run-config.yaml
 ls .claude/dev-state/.upgrade-backup-*/
 cat .claude/dev-state/.upgrade-backup-*/manifest.txt
 
-# 手动将备份文件逐一复制回原位
+# 按 manifest.txt 中的路径，逐一复制回原位
+# 示例（替换为实际的备份目录名）：
+# BACKUP=.claude/dev-state/.upgrade-backup-20260222-143000
+# cp "$BACKUP/.claude/CLAUDE.md" .claude/CLAUDE.md
+# cp "$BACKUP/.claude/dev-state/run-config.yaml" .claude/dev-state/run-config.yaml
 ```
 
 #### 方法 B：使用 Git（如果 .claude/ 被 Git 跟踪）
@@ -948,7 +986,7 @@ A: v3.0 已将所有 Agent 协议合并到 `.claude/CLAUDE.md`，独立的 `agen
 
 ---
 
-## 十、FAQ
+## 十一、FAQ
 
 **Q: iteration-id 怎么取名？**
 统一使用 `iter-N` 格式（N 为数字，从 0 开始），如 `iter-0`（首次开发）、`iter-1`、`iter-2`。`init-project.py` 自动创建 `iter-0` 目录。同一项目内不可重复。
