@@ -89,7 +89,7 @@ Leader Agent 是整个开发流程的编排者和用户的唯一交互入口。
    git log --oneline -10 → 代码状态
    ```
 
-   **推荐方式**：运行 `python <框架路径>/scripts/session-manager.py --project-dir "." resume`（其中 `resume` 是子命令，表示恢复上次中断的会话）
+   **推荐方式**：运行 `{{PYTHON}} {{FRAMEWORK_PATH}}/scripts/session-manager.py --project-dir "." resume`（其中 `resume` 是子命令，表示恢复上次中断的会话）
    根据输出的"下一步"字段决定行动。如需详细信息，读取 `resume-summary.md`。
    **禁止**手动逐文件读取来恢复上下文（效率低且容易遗漏）。
 
@@ -172,7 +172,7 @@ auto-loop: 全自动执行
 - 处理 PASS：更新总进度
 
 ##### Phase 5: 交付
-1. 运行完成检查：`python <框架路径>/scripts/phase-gate.py --project-dir "." --iteration-id {iter_id} --check-completion`
+1. 运行完成检查：`{{PYTHON}} {{FRAMEWORK_PATH}}/scripts/phase-gate.py --project-dir "." --iteration-id {iter_id} --check-completion`
 2. 确认所有 CR 为 PASS
 3. 运行最终全量测试（L1 + L2 + lint）
 4. 生成迭代报告
@@ -519,7 +519,7 @@ def auto_loop():
 在执行任何 Phase 转换前，**必须**运行 phase-gate.py：
 
 ```bash
-python <框架路径>/scripts/phase-gate.py \
+{{PYTHON}} {{FRAMEWORK_PATH}}/scripts/phase-gate.py \
     --project-dir "." \
     --iteration-id {iter_id} \
     --from {current_phase} \
@@ -724,7 +724,7 @@ Analyst Agent 是开发流程的"架构师"，负责将用户的粗略需求转�
 
 可运行估算脚本获取建议 CR 范围：
 ```bash
-python dev-framework/scripts/estimate-tasks.py \
+{{PYTHON}} {{FRAMEWORK_PATH}}/scripts/estimate-tasks.py \
   --modules 3 --risk high --complexity moderate --mode iterate
 ```
 
@@ -817,7 +817,7 @@ python dev-framework/scripts/estimate-tasks.py \
    - `regression_test` 段：回归测试要求
 
 3. **生成 verify 脚本**
-   - 可选：先运行 `python <框架路径>/scripts/run-verify.py --project-dir "." --iteration-id "iter-N" --generate-skeleton CR-xxx` 生成骨架
+   - 可选：先运行 `{{PYTHON}} {{FRAMEWORK_PATH}}/scripts/run-verify.py --project-dir "." --iteration-id "iter-N" --generate-skeleton CR-xxx` 生成骨架
    - 必须：检查骨架并补全真实的业务验证逻辑（骨架中的 NotImplementedError 会导致运行失败）
    - 每个 CR 对应一个 verify 脚本
    - 脚本放在 `.claude/dev-state/{iteration-id}/verify/` 目录
@@ -1253,7 +1253,7 @@ Verifier Agent 是验收执行的独立角色，负责在 Developer 编码完成
 #### Step 2: 运行 L0 验收
 
 ```bash
-python .claude/dev-state/{iteration-id}/verify/CR-xxx.py
+{{PYTHON}} .claude/dev-state/{iteration-id}/verify/CR-xxx.py
 ```
 
 - 记录完整的标准输出和返回码
@@ -1468,7 +1468,7 @@ Reviewer Agent 是质量的最后守门人。
 
 ```bash
 # 运行该 CR 的 verify 脚本（L0 验收，由 Verifier 已执行，Reviewer 复核）
-python .claude/dev-state/{iteration-id}/verify/CR-xxx.py
+{{PYTHON}} .claude/dev-state/{iteration-id}/verify/CR-xxx.py
 
 # 运行 L2 集成测试
 {{TEST_RUNNER}} tests/integration/ -x -q
@@ -1600,7 +1600,7 @@ review_result:
 > 执行者：见各 Gate 的"执行者"字段
 > 目的：确保每个环节的产出质量达标
 >
-> **`<框架路径>` 说明**：指 dev-framework 仓库的根目录（即包含 `scripts/`、`templates/` 的目录）。
+> **框架路径说明**：本文档中的框架脚本路径在生成时已自动替换为实际安装路径。
 > 可通过环境变量（如 `DEV_FRAMEWORK_DIR`）、绝对路径、或相对于项目目录的路径指定。
 
 ---
@@ -1644,8 +1644,8 @@ review_result:
 
 | 脚本 | 职责 | 触发时机 | 用法示例 |
 |------|------|---------|---------|
-| `<框架路径>/scripts/phase-gate.py` | **Phase 转换门控**：检查从 Phase N 转换到 Phase N+1 的前置条件是否满足 | 每次 Phase 转换前 | `python <框架路径>/scripts/phase-gate.py --project-dir "." --iteration-id "iter-1" --from phase_2 --to phase_3` |
-| `<框架路径>/scripts/check-quality-gate.py` | **任务级质量检查**：检查单个任务或单个 Gate 是否满足质量标准 | 任务状态变更时 | `python <框架路径>/scripts/check-quality-gate.py --project-dir "." --gate "gate_3" --iteration-id "iter-1" --task-id "CR-001"` |
+| `{{FRAMEWORK_PATH}}/scripts/phase-gate.py` | **Phase 转换门控**：检查从 Phase N 转换到 Phase N+1 的前置条件是否满足 | 每次 Phase 转换前 | `{{PYTHON}} {{FRAMEWORK_PATH}}/scripts/phase-gate.py --project-dir "." --iteration-id "iter-1" --from phase_2 --to phase_3` |
+| `{{FRAMEWORK_PATH}}/scripts/check-quality-gate.py` | **任务级质量检查**：检查单个任务或单个 Gate 是否满足质量标准 | 任务状态变更时 | `{{PYTHON}} {{FRAMEWORK_PATH}}/scripts/check-quality-gate.py --project-dir "." --gate "gate_3" --iteration-id "iter-1" --task-id "CR-001"` |
 
 脚本职责分工：
 - **phase-gate.py**：Phase 状态转换的前置条件检查（结构完整性），由 Leader 在 Phase 切换时调用
@@ -1694,7 +1694,7 @@ review_result:
 
 **触发时机**: Phase 2 完成时
 **执行者**: Leader Agent + 用户（interactive 模式下用户审批）
-**自动化**: `python <框架路径>/scripts/phase-gate.py --from phase_2 --to phase_3`
+**自动化**: `{{PYTHON}} {{FRAMEWORK_PATH}}/scripts/phase-gate.py --from phase_2 --to phase_3`
 **检查内容**:
 - [ ] 每个 CR 有完整的 design + acceptance_criteria
 - [ ] 每个 CR 改动 ≤ 5 个文件
@@ -1710,7 +1710,7 @@ review_result:
 
 **触发时机**: Phase 3 开发全部完成后
 **执行者**: Leader Agent
-**自动化**: `python <框架路径>/scripts/phase-gate.py --from phase_3 --to phase_3.5`
+**自动化**: `{{PYTHON}} {{FRAMEWORK_PATH}}/scripts/phase-gate.py --from phase_3 --to phase_3.5`
 **检查内容**:
 - [ ] 所有 CR 状态为 `ready_for_verify` 或更后的状态
 - [ ] 无 CR 处于 `pending` 或 `in_progress` 状态
@@ -1722,7 +1722,7 @@ review_result:
 **触发时机**: Developer 标记 ready_for_verify 后
 **执行者**: Verifier Agent（独立于 Developer 执行）
 **检查内容**:
-- [ ] `python verify/CR-xxx.py` 全部 PASS
+- [ ] `{{PYTHON}} verify/CR-xxx.py` 全部 PASS
 - [ ] 无 Mock 绕过
 - [ ] done_evidence 已填写（tests、logs 非空）
 
@@ -1732,7 +1732,7 @@ review_result:
 
 **触发时机**: Phase 3.5 验收全部完成后
 **执行者**: Leader Agent
-**自动化**: `python <框架路径>/scripts/phase-gate.py --from phase_3.5 --to phase_4`
+**自动化**: `{{PYTHON}} {{FRAMEWORK_PATH}}/scripts/phase-gate.py --from phase_3.5 --to phase_4`
 **检查内容**:
 - [ ] 所有 CR 状态为 `ready_for_review` 或 `PASS`
 - [ ] 无 CR 处于 `rework` 状态（需先修复再转换）
@@ -1743,7 +1743,7 @@ review_result:
 
 **触发时机**: L0 通过后
 **执行者**: Verifier Agent
-**自动化**: `python <框架路径>/scripts/check-quality-gate.py --gate gate_4`
+**自动化**: `{{PYTHON}} {{FRAMEWORK_PATH}}/scripts/check-quality-gate.py --gate gate_4`
 **检查内容**:
 - [ ] `{{TEST_RUNNER}} tests/ -x -q` 全部通过
 - [ ] passed 数 ≥ baseline.l1_passed
@@ -1757,7 +1757,7 @@ review_result:
 
 **触发时机**: 每完成一批（2-3 个）CR
 **执行者**: Leader Agent
-**自动化**: `python <框架路径>/scripts/check-quality-gate.py --gate gate_5`（部分检查需手动确认）
+**自动化**: `{{PYTHON}} {{FRAMEWORK_PATH}}/scripts/check-quality-gate.py --gate gate_5`（部分检查需手动确认）
 **检查内容**:
 - [ ] Gate 4 通过（全量 L1）— **自动检查**（由 check-quality-gate.py 执行 lint/test）
 - [ ] L2 集成测试通过（如果有）— **自动检查**（由脚本执行 pytest）
@@ -1778,7 +1778,7 @@ Select-String -Pattern "TODO|FIXME|NotImplementedError" -Path {changed_files}
 findstr /s /i "TODO FIXME NotImplementedError" {changed_files}
 
 # 推荐：使用 check-quality-gate.py 自动执行（内置跨平台支持）
-python <框架路径>/scripts/check-quality-gate.py --project-dir "." --gate gate_5
+{{PYTHON}} {{FRAMEWORK_PATH}}/scripts/check-quality-gate.py --project-dir "." --gate gate_5
 ```
 
 **失败处理**: 停止新 CR 开发，优先修复
@@ -1800,7 +1800,7 @@ python <框架路径>/scripts/check-quality-gate.py --project-dir "." --gate gat
 
 **触发时机**: 所有 CR 为 PASS
 **执行者**: Leader Agent + Reviewer Agent（联合执行）
-**自动化**: `python <框架路径>/scripts/phase-gate.py --from phase_4 --to phase_5`
+**自动化**: `{{PYTHON}} {{FRAMEWORK_PATH}}/scripts/phase-gate.py --from phase_4 --to phase_5`
 **检查内容**:
 - [ ] 全量 L1 测试通过
 - [ ] 全量 L2 集成测试通过
@@ -1950,7 +1950,7 @@ Reviewer 在 Gate 6 中检查：
 7. 会话中断恢复时（新会话读取状态后）
 
 完整恢复（长时间中断后）：
-运行 `python {{FRAMEWORK_PATH}}/scripts/session-manager.py --project-dir "." resume`
+运行 `{{PYTHON}} {{FRAMEWORK_PATH}}/scripts/session-manager.py --project-dir "." resume`
 
 ## 九、滚动上下文快照机制
 
@@ -2031,11 +2031,11 @@ Reviewer 在 Gate 6 中检查：
 
 ```bash
 # 初始化新项目
-python {{FRAMEWORK_PATH}}/scripts/init-project.py \
+{{PYTHON}} {{FRAMEWORK_PATH}}/scripts/init-project.py \
     --project-dir "." --requirement-doc "docs/requirements.md" --tech-stack "python"
 
 # 初始化新迭代
-python {{FRAMEWORK_PATH}}/scripts/init-iteration.py \
+{{PYTHON}} {{FRAMEWORK_PATH}}/scripts/init-iteration.py \
     --project-dir "." --requirement "需求描述" --iteration-id "iter-N"
 ```
 
@@ -2043,44 +2043,44 @@ python {{FRAMEWORK_PATH}}/scripts/init-iteration.py \
 
 ```bash
 # 运行基线测试
-python {{FRAMEWORK_PATH}}/scripts/run-baseline.py --project-dir "." --iteration-id "iter-N"
+{{PYTHON}} {{FRAMEWORK_PATH}}/scripts/run-baseline.py --project-dir "." --iteration-id "iter-N"
 
 # 运行验收脚本
-python {{FRAMEWORK_PATH}}/scripts/run-verify.py --project-dir "." --iteration-id "iter-N" --task-id "CR-001"
+{{PYTHON}} {{FRAMEWORK_PATH}}/scripts/run-verify.py --project-dir "." --iteration-id "iter-N" --task-id "CR-001"
 
 # 运行所有验收
-python {{FRAMEWORK_PATH}}/scripts/run-verify.py --project-dir "." --iteration-id "iter-N" --all
+{{PYTHON}} {{FRAMEWORK_PATH}}/scripts/run-verify.py --project-dir "." --iteration-id "iter-N" --all
 ```
 
 ### 质量门控
 
 ```bash
 # Phase 转换检查
-python {{FRAMEWORK_PATH}}/scripts/phase-gate.py \
+{{PYTHON}} {{FRAMEWORK_PATH}}/scripts/phase-gate.py \
     --project-dir "." --iteration-id "iter-N" --from phase_2 --to phase_3
 
 # 质量门控检查
-python {{FRAMEWORK_PATH}}/scripts/check-quality-gate.py --project-dir "." --gate gate_4
+{{PYTHON}} {{FRAMEWORK_PATH}}/scripts/check-quality-gate.py --project-dir "." --gate gate_4
 ```
 
 ### Session 管理
 
 ```bash
 # 查看状态
-python {{FRAMEWORK_PATH}}/scripts/session-manager.py --project-dir "." status
+{{PYTHON}} {{FRAMEWORK_PATH}}/scripts/session-manager.py --project-dir "." status
 
 # 恢复会话
-python {{FRAMEWORK_PATH}}/scripts/session-manager.py --project-dir "." resume
+{{PYTHON}} {{FRAMEWORK_PATH}}/scripts/session-manager.py --project-dir "." resume
 
 # 写入检查点
-python {{FRAMEWORK_PATH}}/scripts/session-manager.py --project-dir "." checkpoint
+{{PYTHON}} {{FRAMEWORK_PATH}}/scripts/session-manager.py --project-dir "." checkpoint
 ```
 
 ### AutoLoop 运行
 
 ```bash
 # 启动 AutoLoop 外围循环
-python {{FRAMEWORK_PATH}}/scripts/auto-loop-runner.py \
+{{PYTHON}} {{FRAMEWORK_PATH}}/scripts/auto-loop-runner.py \
     --project-dir "." --iteration-id "iter-N" --max-restarts 10
 ```
 
@@ -2088,8 +2088,8 @@ python {{FRAMEWORK_PATH}}/scripts/auto-loop-runner.py \
 
 ```bash
 # 生成迭代报告
-python {{FRAMEWORK_PATH}}/scripts/generate-report.py --project-dir "." --iteration-id "iter-N"
+{{PYTHON}} {{FRAMEWORK_PATH}}/scripts/generate-report.py --project-dir "." --iteration-id "iter-N"
 
 # 任务规模估算
-python {{FRAMEWORK_PATH}}/scripts/estimate-tasks.py --modules 5 --risk high --complexity moderate --mode iterate
+{{PYTHON}} {{FRAMEWORK_PATH}}/scripts/estimate-tasks.py --modules 5 --risk high --complexity moderate --mode iterate
 ```

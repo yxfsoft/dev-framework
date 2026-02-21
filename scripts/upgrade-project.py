@@ -1008,6 +1008,7 @@ def _generate_merged_claude_md_impl(ctx: UpgradeContext) -> MigrateResult:
     config = load_run_config(ctx.project_dir)
     toolchain = detect_toolchain(ctx.project_dir, config)
     fw_content = fw_content.replace("{{TEST_RUNNER}}", toolchain["test_runner"])
+    fw_content = fw_content.replace("{{PYTHON}}", toolchain["python"])
 
     # 保留已有的项目配置部分（如果有）
     target_path = ctx.project_dir / ".claude" / "CLAUDE.md"

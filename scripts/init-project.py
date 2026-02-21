@@ -469,6 +469,7 @@ def init_project(project_dir: Path, requirement_doc: str, tech_stack: str) -> No
                 _config = load_run_config(project_dir) if run_config_path.exists() else {}
                 _toolchain = detect_toolchain(project_dir, _config)
                 fw_content = fw_content.replace("{{TEST_RUNNER}}", _toolchain["test_runner"])
+                fw_content = fw_content.replace("{{PYTHON}}", _toolchain["python"])
                 dot_claude.write_text(fw_content, encoding="utf-8")
                 print(f"  生成: .claude/CLAUDE.md (v3.0 合并版运行时手册，追加模式)")
             else:
@@ -535,6 +536,7 @@ def init_project(project_dir: Path, requirement_doc: str, tech_stack: str) -> No
             _config = load_run_config(project_dir) if run_config_path.exists() else {}
             _toolchain = detect_toolchain(project_dir, _config)
             fw_content = fw_content.replace("{{TEST_RUNNER}}", _toolchain["test_runner"])
+            fw_content = fw_content.replace("{{PYTHON}}", _toolchain["python"])
             parts.append(fw_content)
 
         if parts:
