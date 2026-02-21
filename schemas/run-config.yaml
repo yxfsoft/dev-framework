@@ -57,7 +57,7 @@ fields:
     enum: ["standard", "lightweight"]
     default: "standard"
     description: |
-      迭代模式。[实验性 — v3.1 完善] 当前仅文档层面支持。
+      迭代模式。当前仅文档层面支持。
       standard = 完整 5 Phase（Verify 和 Review 分开执行）
       lightweight = 合并 Phase 3.5+4（Verify+Review 由同一 Agent 执行）
 
@@ -154,7 +154,7 @@ fields:
 
   snapshot:
     type: object
-    description: "[v3.1 计划] 上下文快照配置。当前由 Agent 协议驱动，此配置预留。"
+    description: "[计划] 上下文快照配置。当前由 Agent 协议驱动，此配置预留。"
     properties:
       enabled:
         type: boolean

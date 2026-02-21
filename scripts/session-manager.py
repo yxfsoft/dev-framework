@@ -111,7 +111,11 @@ def cmd_checkpoint(project_dir: Path) -> None:
         print("无 session 状态文件")
         return
 
-    state = json.loads(state_path.read_text(encoding="utf-8"))
+    try:
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as e:
+        print(f"ERROR: session-state.json 读取/解析失败: {e}")
+        return
     iteration_id = state.get("current_iteration", "unknown")
     cp_dir = dev_state / iteration_id / "checkpoints"
     cp_dir.mkdir(parents=True, exist_ok=True)
@@ -304,7 +308,11 @@ def cmd_resume(project_dir: Path) -> None:
         print("无 session 状态。这是一个全新的 session。")
         return
 
-    state = json.loads(state_path.read_text(encoding="utf-8"))
+    try:
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as e:
+        print(f"ERROR: session-state.json 读取/解析失败: {e}")
+        return
     iteration_id = state.get("current_iteration", "unknown")
     iter_dir = dev_state / iteration_id
 
@@ -407,7 +415,11 @@ def cmd_ledger(project_dir: Path) -> None:
         print("无 session 状态文件")
         return
 
-    state = json.loads(state_path.read_text(encoding="utf-8"))
+    try:
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as e:
+        print(f"ERROR: session-state.json 读取/解析失败: {e}")
+        return
     iteration_id = state.get("current_iteration", "unknown")
     ledger_dir = dev_state / iteration_id / "ledger"
     ledger_dir.mkdir(parents=True, exist_ok=True)

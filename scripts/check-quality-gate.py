@@ -112,8 +112,11 @@ def gate_1_requirement(project_dir: Path, **kwargs) -> bool | str:
         # 尝试从 session-state.json 读取
         state_path = project_dir / ".claude" / "dev-state" / "session-state.json"
         if state_path.exists():
-            state = json.loads(state_path.read_text(encoding="utf-8"))
-            iteration_id = state.get("current_iteration")
+            try:
+                state = json.loads(state_path.read_text(encoding="utf-8"))
+                iteration_id = state.get("current_iteration")
+            except (json.JSONDecodeError, OSError) as e:
+                print(f"  WARN  session-state.json 读取/解析失败: {e}")
 
     if not iteration_id:
         print("  SKIP  未指定 iteration-id，且无法从 session-state.json 读取（请手动指定 --iteration-id）")
@@ -144,8 +147,11 @@ def gate_2_task_plan(project_dir: Path, **kwargs) -> bool:
     if not iteration_id:
         state_path = project_dir / ".claude" / "dev-state" / "session-state.json"
         if state_path.exists():
-            state = json.loads(state_path.read_text(encoding="utf-8"))
-            iteration_id = state.get("current_iteration")
+            try:
+                state = json.loads(state_path.read_text(encoding="utf-8"))
+                iteration_id = state.get("current_iteration")
+            except (json.JSONDecodeError, OSError) as e:
+                print(f"  WARN  session-state.json 读取/解析失败: {e}")
 
     if not iteration_id:
         print("  SKIP  未指定 iteration-id")
@@ -431,8 +437,11 @@ def gate_6_code_review(project_dir: Path, **kwargs) -> bool | str:
     if not iteration_id:
         state_path = project_dir / ".claude" / "dev-state" / "session-state.json"
         if state_path.exists():
-            state = json.loads(state_path.read_text(encoding="utf-8"))
-            iteration_id = state.get("current_iteration")
+            try:
+                state = json.loads(state_path.read_text(encoding="utf-8"))
+                iteration_id = state.get("current_iteration")
+            except (json.JSONDecodeError, OSError) as e:
+                print(f"  WARN  session-state.json 读取/解析失败: {e}")
 
     if not iteration_id:
         print("  SKIP  未指定 iteration-id")

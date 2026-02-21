@@ -327,7 +327,7 @@ def auto_loop():
         if not verify_ok:
             task.status = "rework"
             task.retries += 1
-            if task.retries > max_retries:
+            if task.retries >= max_retries:
                 task.status = "failed"
                 consecutive_failures += 1
             continue
@@ -345,7 +345,7 @@ def auto_loop():
         else:
             task.status = "rework"
             task.retries += 1
-            if task.retries > max_retries:
+            if task.retries >= max_retries:
                 task.status = "failed"
                 consecutive_failures += 1
             continue
@@ -1658,7 +1658,7 @@ review_result:
 - `phase_2→3`：检查 tasks 目录非空、verify 脚本完整、脚本质量底线
 - `phase_3→3.5`：检查所有 CR 状态为 ready_for_verify 或更后
 - `phase_3.5→4`：检查所有 CR 状态为 ready_for_review 或 PASS
-- `phase_4→5`：检查所有 CR 为 PASS、done_evidence 非空、review_result 非空
+- `phase_4→5`：检查所有 CR 为 PASS、done_evidence 非空、review_result 非空、checkpoints/ 非空、verify/ 非空
 
 ---
 
@@ -1941,11 +1941,14 @@ Reviewer 在 Gate 6 中检查：
 ### 更新要求
 
 每个显著动作完成后，**必须**用 Write 工具**整体覆盖**更新 `context-snapshot.md`。
-显著动作包括：
-- 完成一个 CR 的任意 step
-- 做出关键技术决策
-- 发现新的坑点或问题
-- Phase 转换
+显著动作包括（共 7 项）：
+1. 任务状态变更（CR status 变化时）
+2. 任务步骤推进（CR current_step 变化时）
+3. Phase 转换完成（phase-gate.py 通过后）
+4. checkpoint 写入后（session-manager.py checkpoint 执行后）
+5. 关键技术决策记录后（写入 decisions.md 后）
+6. 发现问题后（发现坑点或重大问题时）
+7. 会话中断恢复时（新会话读取状态后）
 
 完整恢复（长时间中断后）：
 运行 `python {{FRAMEWORK_PATH}}/scripts/session-manager.py --project-dir "." resume`
@@ -1959,7 +1962,7 @@ Reviewer 在 Gate 6 中检查：
 
 ### 更新规则
 
-- **频率**：每个 CR step 完成后更新（默认 per_step，v3.1 将支持通过 run-config.yaml 配置）
+- **频率**：每个 CR step 完成后更新（默认 per_step，后续将支持通过 run-config.yaml 配置）
 - **方式**：必须用 Write 工具**整体覆盖**（不是追加），所以文件大小恒定
 - **触发**：在完成以下 7 个显著动作后必须更新：
   1. 任务状态变更（CR status 变化时）

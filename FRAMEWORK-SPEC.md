@@ -164,6 +164,10 @@ Reviewer   |   ✓    |   ✗    |    ✗     |   ✓    |     ✗      |    ✓
 2. **context-snapshot.md（磁盘层，可恢复）**：滚动快照记录进度和上下文，压缩后重新读取恢复
 3. **磁盘状态文件体系（完整恢复层）**：P3 原则保证关键信息实时写入，`session-manager.py resume` 输出完整恢复摘要
 
+### 4.4 用户退出再返回
+
+新开 session 时执行标准启动流程，读取全部状态文件后输出恢复摘要。
+
 ### 4.5 context-snapshot.md 更新规则
 
 `context-snapshot.md` 是滚动快照文件，用于跨会话快速恢复状态。更新规则如下：
@@ -186,10 +190,6 @@ Reviewer   |   ✓    |   ✗    |    ✗     |   ✓    |     ✗      |    ✓
 - Agent 手动更新使用完整模板格式（含所有 section）
 - `session-manager.py checkpoint` 使用简化版格式（自动生成的进度摘要），不包含技术上下文等需要 Agent 判断的内容
 
-### 4.4 用户退出再返回
-
-新开 session 时执行标准启动流程，读取全部状态文件后输出恢复摘要。
-
 ---
 
 ## 五、运行模式
@@ -197,7 +197,7 @@ Reviewer   |   ✓    |   ✗    |    ✗     |   ✓    |     ✗      |    ✓
 ### 5.1 配置文件
 
 运行配置为 `.claude/dev-state/run-config.yaml`，完整字段定义详见 `schemas/run-config.yaml`（同时作为格式定义文档和回退配置源）。
-主要配置：`mode`（interactive/auto-loop）、`toolchain`（支持 auto 检测）、`iteration_mode`、`hooks`、`snapshot`（[v3.1 计划] 当前由 Agent 协议驱动）。
+主要配置：`mode`（interactive/auto-loop）、`toolchain`（支持 auto 检测）、`iteration_mode`、`hooks`、`snapshot`（[计划] 当前由 Agent 协议驱动）。
 
 ### 5.2 Interactive 模式（默认）
 
@@ -302,6 +302,28 @@ Rework 完整链条（不允许跳过）:
   timeout   — 执行超时，同 failed 处理
 ```
 
+### 6.2.1 Hotfix 快速通道
+
+Hotfix 是紧急修复的快速通道，用于线上紧急 bug 或实机调试场景。与标准任务流程相比，Hotfix 简化了部分环节：
+
+| 环节 | 标准任务 | Hotfix |
+|------|---------|--------|
+| 需求分析 | Analyst 完整深化 | 简化，使用 `fix_description` 替代 `design` |
+| verify 脚本 | Analyst 生成独立脚本 | 使用 `verification` 字段描述验证方式 |
+| Leader 简化审查 | 完整代码审查 | Leader 执行简化审查（仅检查基线回归 + 变更范围合理） |
+| Phase 门控 | 严格状态检查 | Phase 3→3.5 和 3.5→4 跳过该 hotfix CR 的状态检查（`phase-gate.py` 中 `type=="hotfix"` 时 `continue`），Phase 4→5 仅检查 status=PASS + done_evidence 非空 |
+| done_evidence | 必须填写 | 必须填写 |
+
+**适用场景**：
+- 线上紧急 bug，需要最短时间修复
+- 实机调试中发现的阻断问题
+
+**限制条件**：
+- 不可滥用：非紧急修复禁止使用 hotfix 类型
+- 基线回归不可跳过：hotfix 完成后仍需通过基线测试
+- 必须在 `decisions.md` 中记录使用 hotfix 快速通道的原因
+- 模板参见 `templates/tasks/hotfix.yaml.tmpl`
+
 ### 6.2.2 特殊状态恢复规则
 
 当任务进入 `failed`、`blocked`、`timeout` 状态后，必须由 Leader 评估并决定恢复路径：
@@ -316,28 +338,6 @@ Rework 完整链条（不允许跳过）:
 - 恢复操作**必须由 Leader 执行**，其他角色不可自行恢复
 - 每次恢复操作**必须记录 decisions.md**（包含原因、恢复路径、风险评估）
 - `max_retries` 优先级：task YAML `max_retries` 字段 > run-config.yaml `max_retries_per_task` > 默认值 2
-
-### 6.2.1 Hotfix 快速通道
-
-Hotfix 是紧急修复的快速通道，用于线上紧急 bug 或实机调试场景。与标准任务流程相比，Hotfix 简化了部分环节：
-
-| 环节 | 标准任务 | Hotfix |
-|------|---------|--------|
-| 需求分析 | Analyst 完整深化 | 简化，使用 `fix_description` 替代 `design` |
-| verify 脚本 | Analyst 生成独立脚本 | 使用 `verification` 字段描述验证方式 |
-| Reviewer 审查 | 完整代码审查 | 仍需审查，但可简化 |
-| Phase 门控 | 严格状态检查 | Phase 3→3.5 和 3.5→4 跳过该 hotfix CR 的状态检查（`phase-gate.py` 中 `type=="hotfix"` 时 `continue`），Phase 4→5 仅检查 status=PASS + done_evidence 非空 |
-| done_evidence | 必须填写 | 必须填写 |
-
-**适用场景**：
-- 线上紧急 bug，需要最短时间修复
-- 实机调试中发现的阻断问题
-
-**限制条件**：
-- 不可滥用：非紧急修复禁止使用 hotfix 类型
-- 基线回归不可跳过：hotfix 完成后仍需通过基线测试
-- 必须在 `decisions.md` 中记录使用 hotfix 快速通道的原因
-- 模板参见 `templates/tasks/hotfix.yaml.tmpl`
 
 ### 6.3 基线保护
 
@@ -357,6 +357,15 @@ iterate-mode 下，每次迭代开始时记录基线（测试通过数、lint �
 
 需求深化维度（功能行为、用户体验、数据影响、性能要求、安全影响、集成影响）及详细确认流程，详见运行时 `.claude/CLAUDE.md` 中的 Analyst 协议（由 `CLAUDE-framework.md.tmpl` 生成）。
 
+### 7.2 任务拆分标准
+
+**原子性**: 每个 CR 只做一件事，改动 ≤ 5 个文件
+**可验证性**: 每个 CR 有独立的 verify 脚本
+**独立性**: 尽量可并行，依赖关系最小化
+**专业性**: 技术方案要说明 why（为什么选这个方案而非其他）
+**七路径审视**: 拆分前必须沿七条路径（Happy/Sad/Edge/Perf/UX/Guard/Ops）逐条审视，
+每条路径要么产出 CR，要么标注不适用并说明原因（详见 ADR-008 及运行时 `.claude/CLAUDE.md` 中的 Analyst 协议）
+
 ### 7.3 需求深化 6 维度与 CR 覆盖 8 维度的关系
 
 框架使用两套维度体系，分别作用于不同阶段，容易混淆但用途完全不同：
@@ -370,15 +379,6 @@ iterate-mode 下，每次迭代开始时记录基线（测试通过数、lint �
 | 产出 | 补全后的 requirement-spec.md | 维度覆盖矩阵（每个维度关联到具体 CR） |
 
 6 维度面向需求补全（输入完整性），8 维度面向 CR 覆盖验证（输出完整性）。
-
-### 7.2 任务拆分标准
-
-**原子性**: 每个 CR 只做一件事，改动 ≤ 5 个文件
-**可验证性**: 每个 CR 有独立的 verify 脚本
-**独立性**: 尽量可并行，依赖关系最小化
-**专业性**: 技术方案要说明 why（为什么选这个方案而非其他）
-**七路径审视**: 拆分前必须沿七条路径（Happy/Sad/Edge/Perf/UX/Guard/Ops）逐条审视，
-每条路径要么产出 CR，要么标注不适用并说明原因（详见 ADR-008 及运行时 `.claude/CLAUDE.md` 中的 Analyst 协议）
 
 ---
 
