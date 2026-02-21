@@ -963,8 +963,8 @@ def _generate_merged_claude_md_impl(ctx: UpgradeContext) -> MigrateResult:
     if not claude_md_path.exists():
         claude_md_path = ctx.project_dir / "CLAUDE.md"
 
-    # 检查是否已是 v3.0 合并版
-    if claude_md_path.exists():
+    # 检查是否已是 v3.0 合并版（--force 时强制重新生成）
+    if claude_md_path.exists() and not ctx.force:
         content = claude_md_path.read_text(encoding="utf-8")
         if "Dev-Framework 运行时手册 v3.0" in content:
             return MigrateResult("skipped", "CLAUDE.md 已包含 v3.0 运行时手册")
