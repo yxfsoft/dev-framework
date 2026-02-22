@@ -1,6 +1,6 @@
 # Dev-Framework 规格书
 
-> 版本: v3.0 | 更新日期: 2026-02-21
+> 版本: v4.0 | 更新日期: 2026-02-22
 > 统一多代理协作开发框架 — 覆盖首次开发与多轮迭代
 
 ---
@@ -70,7 +70,7 @@ Review Agent 可以将任务打回 `rework`。
 首次开发采用"基础设施层 + 垂直切片"策略：
 - Phase 0 搭建所有共享基础设施（DB、配置、API 骨架等），此后冻结
 - 后续每个切片是一条完整的端到端数据流
-- 切片间通过独立验证脚本保证互不干扰
+- 切片间通过独立验收脚本保证互不干扰
 
 迭代开发按 Change Request 粒度执行，每个 CR ≤ 5 个文件改动。
 
@@ -102,29 +102,33 @@ Review Agent 可以将任务打回 `rework`。
 
 ### 3.2 Agent 角色
 
-| Agent | 权限 | 核心职责 |
-|-------|------|---------|
-| Leader | 全部 | 编排协调、任务分配、进度管控、用户交互 |
-| Analyst | 只读代码 + 写文档/脚本 | 需求深化、影响分析、任务拆分、生成 verify 脚本 |
-| Developer | 读写代码 | 编码实现 + L1 测试 + 基线回归 |
-| Verifier | 只读代码 + 运行验证 + 写 evidence | 独立验收执行（L0）+ 证据收集 |
-| Reviewer | 只读代码 + 运行测试 + 更新任务状态 | 独立审查 + L2 验证 + 打回权 |
+| Agent | 权限 | 核心职责 | tools | 子代理文件 |
+|-------|------|---------|-------|-----------|
+| Leader | 全部 | 编排协调、任务分配、进度管控、用户交互 | 全部（Read/Write/Edit/Bash） | 主模板 CLAUDE.md |
+| Analyst | 只读代码 + 写文档/脚本 | 需求深化、影响分析、任务拆分、生成 verify 脚本 | Read/Write/Edit/Bash | `.claude/agents/analyst.md` |
+| Developer | 读写代码 | 编码实现 + L1 测试 + 基线回归 | Read/Write/Edit/Bash | `.claude/agents/developer.md` |
+| Verifier | 只读代码 + 运行验证（工具级强制） | 独立验收执行（L0）+ 证据收集 | Read/Bash（无 Write/Edit） | `.claude/agents/verifier.md` |
+| Reviewer | 只读代码 + 运行测试（工具级强制） | 独立审查 + L2 验证 + 打回权 | Read/Bash（无 Write/Edit） | `.claude/agents/reviewer.md` |
 
-**权限分离矩阵**：
+**权限分离矩阵**（v4.0: Verifier/Reviewer 权限由子代理 tools 字段工具级强制，非协议文字约束）：
 
 ```
-           | 读代码 | 写代码 | 改 verify | 改任务 | 写 evidence | 标 PASS |
------------|--------|--------|----------|--------|------------|---------|
-Leader     |   ✓    |   ✓    |    ✓     |   ✓    |     ✓      |    ✓    |
-Analyst    |   ✓    |   ✗    |    ✓     |   ✓    |     ✗      |    ✗    |
-Developer  |   ✓    |   ✓    |    ✗     | status+notes+commits |     ✗      |    ✗    |
-Verifier   |   ✓    |   ✗    |    ✗     | status+evidence |     ✓      |    ✗    |
-Reviewer   |   ✓    |   ✗    |    ✗     |   ✓    |     ✗      |    ✓    |
+           | 读代码 | 写代码 | 改 verify | 改任务 | 写 evidence | 标 PASS | 权限实现方式 |
+-----------|--------|--------|----------|--------|------------|---------|-------------|
+Leader     |   ✓    |   ✓    |    ✓     |   ✓    |     ✓      |    ✓    | 全部工具    |
+Analyst    |   ✓    |   ✗    |    ✓     |   ✓    |     ✗      |    ✗    | 子代理 tools |
+Developer  |   ✓    |   ✓    |    ✗     | status+notes+commits |     ✗      |    ✗    | 子代理 tools |
+Verifier   |   ✓    |   ✗    |    ✗     | status+evidence |     ✓      |    ✗    | 工具级强制（无 Write/Edit）+ update-task-field.py 白名单写入 |
+Reviewer   |   ✓    |   ✗    |    ✗     |   ✓    |     ✗      |    ✓    | 工具级强制（无 Write/Edit）+ update-task-field.py 白名单写入 |
 ```
+
+> **v4.0 子代理架构说明**：各角色协议从合并的 CLAUDE.md 拆分为独立的 `.claude/agents/*.md` 子代理文件。
+> Verifier/Reviewer 通过子代理 `tools` 字段禁用 Write/Edit 工具，实现工具级权限隔离。
+> 需要写入 task YAML 时，通过 `scripts/update-task-field.py` 白名单脚本操作。详见 ADR-014、ADR-015。
 
 ### 3.3 工作流阶段
 
-框架工作流分为 Phase 0（环境就绪）→ Phase 1（需求接收与深化）→ Phase 2（影响分析与任务拆分）→ Phase 3（开发执行）→ Phase 3.5（独立验收）→ Phase 4（审查验收）→ Phase 5（交付）共七个阶段。各阶段的详细步骤、门控条件和 Agent 行为协议，详见运行时 `.claude/CLAUDE.md`（由 `CLAUDE-framework.md.tmpl` 生成）。
+框架工作流分为 6 个主阶段（Phase 0-5），Phase 3.5 是 Phase 3 与 Phase 4 之间的验收子阶段：Phase 0（环境就绪）→ Phase 1（需求接收与深化）→ Phase 2（影响分析与任务拆分）→ Phase 3（开发执行）→ Phase 3.5（独立验收）→ Phase 4（审查验收）→ Phase 5（交付）。各阶段的详细步骤、门控条件和 Agent 行为协议，详见运行时 `.claude/CLAUDE.md`（Leader 主模板）和 `.claude/agents/*.md`（各角色子代理协议）。
 
 ---
 
@@ -160,7 +164,7 @@ Reviewer   |   ✓    |   ✗    |    ✗     |   ✓    |     ✗      |    ✓
 
 ### 4.3 上下文压缩保护（三层防护）
 
-1. **CLAUDE.md（系统提示层，永不压缩）**：Agent 协议 + 门控规则常驻系统提示，压缩不丢弃
+1. **CLAUDE.md + agents/*.md（系统提示层，永不压缩）**：Leader 协议 + 门控规则常驻系统提示，子代理各自加载对应 agent 文件，压缩不丢弃
 2. **context-snapshot.md（磁盘层，可恢复）**：滚动快照记录进度和上下文，压缩后重新读取恢复
 3. **磁盘状态文件体系（完整恢复层）**：P3 原则保证关键信息实时写入，`session-manager.py resume` 输出完整恢复摘要
 
@@ -187,6 +191,13 @@ Reviewer   |   ✓    |   ✗    |    ✗     |   ✓    |     ✗      |    ✓
 **更新方式**：用 Write 工具**整体覆盖**（非追加），确保文件大小恒定。
 
 **格式说明**：
+- 模板结构定义在 `templates/project/context-snapshot.md.tmpl` 中，包含以下 section：
+  - **状态**：模式、迭代、阶段、当前任务及运行配置
+  - **进度总览**：CR 总计/完成/进行中/待开始的计数和列表
+  - **关键上下文**：技术决策、发现的问题、技术细节、基线数据
+  - **Verifier/Reviewer 状态**：待验收列表、rework 任务
+  - **下一步**：接下来的行动项
+- 运行时由 Agent 动态填充各占位符（如 `{{PHASE}}`、`{{TASK_ID}}` 等），Write 工具整体覆盖
 - Agent 手动更新使用完整模板格式（含所有 section）
 - `session-manager.py checkpoint` 使用简化版格式（自动生成的进度摘要），不包含技术上下文等需要 Agent 判断的内容
 
@@ -266,7 +277,7 @@ python dev-framework/scripts/phase-gate.py \
     --check-completion
 ```
 
-各门控的详细规则和执行协议，详见运行时 `.claude/CLAUDE.md`（由 `CLAUDE-framework.md.tmpl` 生成）。
+各门控的详细规则和执行协议，详见运行时 `.claude/CLAUDE.md`（Leader 主模板）和 `.claude/agents/*.md`（各角色子代理协议）。
 
 **脚本职责说明**：
 - `phase-gate.py`：管 Phase 转换的**结构性前置条件**（文件存在、状态字段、目录非空）。只在 Phase N→N+1 时调用，检查"能不能进入下一阶段"。
@@ -310,9 +321,16 @@ Hotfix 是紧急修复的快速通道，用于线上紧急 bug 或实机调试�
 |------|---------|--------|
 | 需求分析 | Analyst 完整深化 | 简化，使用 `fix_description` 替代 `design` |
 | verify 脚本 | Analyst 生成独立脚本 | 使用 `verification` 字段描述验证方式 |
-| Leader 简化审查 | 完整代码审查 | Leader 执行简化审查（仅检查基线回归 + 变更范围合理） |
+| Leader 简化审查 | 完整代码审查 | Leader 执行简化审查（见下方详细步骤） |
 | Phase 门控 | 严格状态检查 | Phase 3→3.5 和 3.5→4 跳过该 hotfix CR 的状态检查（`phase-gate.py` 中 `type=="hotfix"` 时 `continue`），Phase 4→5 仅检查 status=PASS + done_evidence 非空 |
 | done_evidence | 必须填写 | 必须填写 |
+
+**Leader 简化审查步骤**：
+
+Leader 执行简化审查，包括：
+1. L1 基线回归检查（全量测试结果 ≥ 基线）
+2. 变更范围合理性检查（修改的文件是否在预期范围内）
+3. 必要的深度检查（涉及安全、性能的变更需额外审查）
 
 **适用场景**：
 - 线上紧急 bug，需要最短时间修复
@@ -355,7 +373,7 @@ iterate-mode 下，每次迭代开始时记录基线（测试通过数、lint �
 
 成熟度评估对应路径：高成熟度 → A（直接拆分）、中成熟度 → B（协助完善）、低成熟度 → B/C（逐步引导）
 
-需求深化维度（功能行为、用户体验、数据影响、性能要求、安全影响、集成影响）及详细确认流程，详见运行时 `.claude/CLAUDE.md` 中的 Analyst 协议（由 `CLAUDE-framework.md.tmpl` 生成）。
+需求深化维度（功能行为、用户体验、数据影响、性能要求、安全影响、集成影响）及详细确认流程，详见运行时 `.claude/agents/analyst.md` 子代理协议。
 
 ### 7.2 任务拆分标准
 
@@ -364,7 +382,7 @@ iterate-mode 下，每次迭代开始时记录基线（测试通过数、lint �
 **独立性**: 尽量可并行，依赖关系最小化
 **专业性**: 技术方案要说明 why（为什么选这个方案而非其他）
 **七路径审视**: 拆分前必须沿七条路径（Happy/Sad/Edge/Perf/UX/Guard/Ops）逐条审视，
-每条路径要么产出 CR，要么标注不适用并说明原因（详见 ADR-008 及运行时 `.claude/CLAUDE.md` 中的 Analyst 协议）
+每条路径要么产出 CR，要么标注不适用并说明原因（详见 ADR-008 及运行时 `.claude/agents/analyst.md` 子代理协议）
 
 ### 7.3 需求深化 6 维度与 CR 覆盖 8 维度的关系
 
@@ -378,7 +396,7 @@ iterate-mode 下，每次迭代开始时记录基线（测试通过数、lint �
 | 维度列表 | 功能行为、用户体验、数据影响、性能要求、安全影响、集成影响 | 功能完整性、用户体验、健壮性、可观测性、可配置性、性能、安全、可测试性 |
 | 产出 | 补全后的 requirement-spec.md | 维度覆盖矩阵（每个维度关联到具体 CR） |
 
-6 维度面向需求补全（输入完整性），8 维度面向 CR 覆盖验证（输出完整性）。
+6 维度面向需求补全（输入完整性），8 维度面向 CR 覆盖检查（输出完整性）。
 
 ---
 
@@ -413,7 +431,7 @@ Phase 0 完成后冻结。切片开发阶段只能扩展不能修改。
 | 文件 | Schema |
 |------|--------|
 | 任务文件 CR-xxx.yaml | `schemas/task-schema.yaml` |
-| 特性清单 feature-checklist.json | `schemas/feature-checklist.json`（init-mode 专用，跟踪垂直切片级别的特性验收状态） |
+| 特性清单 feature-checklist.json | `schemas/feature-checklist.json`（init-mode 专用，跟踪垂直切片级别的特性完成状态） |
 | Session 状态 session-state.json | `schemas/session-state.json` |
 | 运行配置 run-config.yaml | `schemas/run-config.yaml` |
 | 基线检测 baseline.json | `schemas/baseline.json` |
@@ -450,7 +468,7 @@ Phase 0 完成后冻结。切片开发阶段只能扩展不能修改。
 | **done_evidence** | 验收证据归档，由 Verifier 填写 | — |
 | **verify 脚本** | 验收脚本（verify/CR-xxx.py），由 Analyst 生成 | L0 脚本 |
 | **rework / PASS** | 返工 / 终态成功，由 Verifier/Reviewer 标记 | — |
-| **轻量迭代模式 (lightweight)** | 合并 Phase 3.5+4（Verify+Review 由同一 Agent 执行）。启用条件：CR≤5 或全为 enhancement/bug_fix，且无 P0 任务。D/E 维度降级（详见 ADR-013）。需在 decisions.md 中声明 | standard 模式 |
+| **轻量迭代模式 (lightweight)** | 合并 Phase 3.5+4（Verify+Review 由同一 Agent 执行）。**启用条件**（必须同时满足）：CR≤5 或全为 enhancement/bug_fix、无 P0 任务、在 decisions.md 中声明原因。维度 D/E 降级（详见 ADR-013） | standard 模式 |
 
 > **Feature ID 命名空间说明**：feature-checklist 使用 `F001` 格式（init-mode 专用，无连字符），task ID 使用 `F-001` 格式（通用 CR，含连字符），两者命名空间独立。
 
@@ -474,7 +492,7 @@ Phase 0 完成后冻结。切片开发阶段只能扩展不能修改。
 
 ## 十一、架构决策记录
 
-核心设计决策记录在 `ARCHITECTURE.md` 中（ADR 格式：决策、原因、替代方案、后果）。新增或修改设计决策时必须同步更新。
+核心设计决策记录在 `ARCHITECTURE.md` 中（15 条 ADR，ADR 格式：决策、原因、替代方案、后果）。新增或修改设计决策时必须同步更新。
 
 ---
 

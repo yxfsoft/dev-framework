@@ -1,6 +1,6 @@
 # Dev-Framework 架构决策记录
 
-> 版本: v3.0 | 更新日期: 2026-02-21
+> 版本: v4.0 | 更新日期: 2026-02-22
 
 > 记录框架核心设计决策的"为什么"，每条 ADR 包含决策、原因、替代方案、后果。
 
@@ -18,6 +18,7 @@
 **替代方案**：三角色模型（合并 Verifier 到 Developer）。经 grzsk 项目实战验证，任何形式的角色合并都会削弱质量保障链，即使 CR 数量少也不允许简化。v2.6 起废除此替代方案。
 
 **后果**：团队规模略大，但质量保障链更完整：编码→独立验收→独立审查。
+- v4.0 进一步细化：各角色协议拆分为独立 agent 文件，参见 ADR-014
 
 ---
 
@@ -142,6 +143,7 @@
 2. 启动脚本注入（用脚本在 Claude 启动前将 agent 内容注入系统提示）。被拒：绕过了原生 CLAUDE.md 机制，维护复杂
 
 **后果**：`.claude/CLAUDE.md` 增至 ~1,900 行（含项目配置约 ~2,000 行），占 200K 上下文的 ~18%。独立 `agents/` 目录后续在 ADR-011 中正式删除。
+- v4.0 反转：子代理架构重新将协议拆分为独立文件，但拆分粒度更精细（按角色而非按章节），参见 ADR-014
 
 ---
 
@@ -178,6 +180,10 @@
 - `init-project.py` 不再复制 agent 文件到项目
 - CLAUDE-framework.md.tmpl 成为所有 Agent 协议和工作流规则的唯一权威来源
 - FRAMEWORK-SPEC.md、README.md、USER-GUIDE.md 同步更新引用
+
+> **v4.0 更新**：ADR-014 重新启用了 `.claude/agents/` 目录（用于自定义子代理），
+> 反转了本决策中"删除 agents/ 目录"的部分。框架根目录的 agents/ 仍保持删除，
+> 但项目目录 `.claude/agents/` 在 v4.0 中重新用于存放子代理协议文件。
 
 ---
 
@@ -223,3 +229,47 @@
 **替代方案**：始终使用完整五角色流程。被拒：小规模迭代的时间开销不成比例。
 
 **后果**：小规模迭代效率提升，但需要接受 D/E 维度检查深度降低的风险。
+
+---
+
+## ADR-014: 子代理架构迁移（v4.0）
+
+### ADR-014: 子代理架构迁移
+
+**状态**：已接受（v4.0）
+
+**背景**：v3.0 将 5 个 Agent 协议全部合并在 CLAUDE-framework.md.tmpl（~2096 行、~48K tokens）中。每个子代理继承完整的 .claude/CLAUDE.md，靠 Leader 在 spawn prompt 中区分角色。问题：1) 系统提示未隔离（48K tokens 全量加载）；2) 无工具级权限控制（Verifier "不能修改代码"仅靠协议文字约束）；3) 上下文浪费（N 个并行 Developer = N 份 48K）。
+
+**决策**：将已有的隐式子代理机制升级为显式的 `.claude/agents/` 自定义子代理。各角色协议提取为独立 agent 文件，Leader 主模板精简至 ~800 行。Verifier/Reviewer 通过 tools 字段实现工具级权限控制（无 Write/Edit）。
+
+**替代方案**：
+- 保持 v3.0 合并方案（已验证不可持续，48K tokens 接近上下文限制）
+- 仅做文本拆分但不做工具隔离（无法解决权限问题）
+
+**后果**：
+- 每个子代理系统提示从 ~48K 降至 ~5-10K tokens
+- Leader 主模板从 ~48K 降至 ~20K tokens
+- Verifier/Reviewer 权限从协议约束升级为工具级强制
+- 需要维护 5 个独立 agent 文件 + 1 个 Leader 模板（复杂度增加）
+- 反转了 ADR-009 的合并决策
+
+---
+
+## ADR-015: Verifier/Reviewer 受限写入方案
+
+### ADR-015: Verifier/Reviewer 受限写入方案
+
+**状态**：已接受（v4.0）
+
+**背景**：v4.0 将 Verifier/Reviewer 的 tools 设为只读（无 Write/Edit），但这些角色需要写入 done_evidence、review_result 等字段到 task YAML。
+
+**决策**：新增 `scripts/update-task-field.py` 白名单写入脚本。Verifier/Reviewer 通过 Bash 调用此脚本写入限定字段（done_evidence、status、review_result、notes、current_step）。脚本内置字段白名单，禁止写入 design、acceptance_criteria 等核心字段。
+
+**替代方案**：
+- 子代理返回结果让 Leader 代写（增加 Leader 负担，且延迟更新）
+- 给 Verifier/Reviewer Write 权限但靠协议约束（回到 v3.0 的问题）
+
+**后果**：
+- 实现了真正的最小权限原则
+- 脚本成为 Verifier/Reviewer 的唯一写入通道
+- 需要维护白名单字段列表

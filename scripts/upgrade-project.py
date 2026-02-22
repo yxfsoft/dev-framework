@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-upgrade-project.py — 将已有项目升级到 dev-framework v3.0
+upgrade-project.py — 将已有项目升级到 dev-framework v4.0
 
 用法:
     python dev-framework/scripts/upgrade-project.py \
@@ -21,8 +21,8 @@ upgrade-project.py — 将已有项目升级到 dev-framework v3.0
 执行后:
     1. 自动检测当前框架版本
     2. 备份将修改的文件
-    3. 按序执行升级迁移（20 步：基础 15 步 + v3.0 新增 5 步）
-    4. 写入版本标记 .framework-version = "3.0"
+    3. 按序执行升级迁移（25 步：基础 15 步 + v3.0 新增 5 步 + v4.0 新增 5 步）
+    4. 写入版本标记 .framework-version = "4.0"
 """
 
 from __future__ import annotations
@@ -48,6 +48,7 @@ from fw_utils import (
     load_baseline,
     load_task_yaml,
     save_task_yaml,
+    get_framework_dir,
 )
 
 # init-project.py 含连字符，无法直接 import，使用 importlib
@@ -55,7 +56,7 @@ _init_spec = importlib.util.spec_from_file_location(
     "init_project", Path(__file__).resolve().parent / "init-project.py"
 )
 if _init_spec is None or _init_spec.loader is None:
-    print("ERROR: init-project.py 未找到，upgrade-project.py 无法工作")
+    print("[ERROR] init-project.py 未找到，upgrade-project.py 无法工作")
     sys.exit(1)
 _init_module = importlib.util.module_from_spec(_init_spec)
 _init_spec.loader.exec_module(_init_module)
@@ -67,7 +68,7 @@ try:
 except ImportError:
     yaml = None  # type: ignore
 
-TARGET_VERSION = "3.0"
+TARGET_VERSION = "4.0"
 
 
 # ============================================================
@@ -124,11 +125,6 @@ def _find_task_files(dev_state: Path) -> list[Path]:
     return files
 
 
-def _get_framework_dir() -> Path:
-    """获取框架根目录。"""
-    return Path(__file__).resolve().parent.parent
-
-
 # ============================================================
 # Step 1: preflight_check
 # ============================================================
@@ -174,6 +170,12 @@ def migrate_detect_current_version(ctx: UpgradeContext) -> MigrateResult:
     # 特征检测：检查 run-config.yaml 是否缺少 toolchain
     config = load_run_config(ctx.project_dir)
     has_toolchain = "toolchain" in config
+
+    # v4.0 特征检测：检查 .claude/agents/ 是否存在
+    agents_dir = ctx.project_dir / ".claude" / "agents"
+    if agents_dir.exists() and (agents_dir / "analyst.md").exists():
+        ctx.current_version = "4.0"
+        return MigrateResult("applied", "特征检测: .claude/agents/ 存在，判定为 v4.0")
 
     # v3.0 特征检测：检查 .claude/CLAUDE.md 是否包含合并标记
     claude_md = ctx.project_dir / ".claude" / "CLAUDE.md"
@@ -514,8 +516,9 @@ def migrate_acceptance_criteria(ctx: UpgradeContext) -> MigrateResult:
         if ac is None:
             continue
 
-        # 已是新格式（含 functional key）→ 跳过
-        if isinstance(ac, dict) and "functional" in ac:
+        # 已是新格式（含任一新版维度 key）→ 跳过
+        _NEW_FORMAT_KEYS = {"functional", "robustness", "performance", "ux_states", "ux_interaction", "security", "observability"}
+        if isinstance(ac, dict) and any(k in ac for k in _NEW_FORMAT_KEYS):
             _log(ctx, f"已是新格式，跳过: {task_path.name}")
             continue
 
@@ -715,7 +718,7 @@ def migrate_claude_md(ctx: UpgradeContext) -> MigrateResult:
         return MigrateResult("skipped", "CLAUDE.md 已包含 5.1 章节")
 
     # v3.0: 如果框架模板存在，由 Step 16 (generate_merged_claude_md) 统一处理
-    fw_tmpl = _get_framework_dir() / "templates" / "project" / "CLAUDE-framework.md.tmpl"
+    fw_tmpl = get_framework_dir() / "templates" / "project" / "CLAUDE-framework.md.tmpl"
     if fw_tmpl.exists():
         return MigrateResult("skipped", "已是 v3.0 格式，由 Step 16 (generate_merged_claude_md) 处理")
 
@@ -861,7 +864,7 @@ def migrate_agent_protocols(ctx: UpgradeContext) -> MigrateResult:
 # ============================================================
 
 def migrate_git_hooks(ctx: UpgradeContext) -> MigrateResult:
-    """调用 init-project.py 的 _setup_git_hooks() 重新生成。"""
+    """调用 init-project.py 的 _setup_git_hooks() 重新生成（传入工具链）。"""
     git_hooks_dir = ctx.project_dir / ".git" / "hooks"
     if not git_hooks_dir.exists():
         return MigrateResult("skipped", ".git/hooks/ 不存在，跳过（请先 git init）")
@@ -869,8 +872,10 @@ def migrate_git_hooks(ctx: UpgradeContext) -> MigrateResult:
     if ctx.dry_run:
         return MigrateResult("skipped", "[dry-run] 将重新生成 Git hooks")
 
-    _setup_git_hooks(ctx.project_dir)
-    return MigrateResult("applied", "重新生成 pre-commit / commit-msg / pre-push", 3)
+    config = load_run_config(ctx.project_dir)
+    toolchain = detect_toolchain(ctx.project_dir, config)
+    _setup_git_hooks(ctx.project_dir, toolchain=toolchain)
+    return MigrateResult("applied", "重新生成 pre-commit / commit-msg / pre-push (shell+py 分离)", 6)
 
 
 # ============================================================
@@ -970,7 +975,7 @@ def _generate_merged_claude_md_impl(ctx: UpgradeContext) -> MigrateResult:
             return MigrateResult("skipped", "CLAUDE.md 已包含 v3.0 运行时手册")
 
     # 读取模板
-    framework_dir = _get_framework_dir()
+    framework_dir = get_framework_dir()
     fw_tmpl = framework_dir / "templates" / "project" / "CLAUDE-framework.md.tmpl"
     if not fw_tmpl.exists():
         return MigrateResult("error", f"框架模板不存在: {fw_tmpl}")
@@ -1105,7 +1110,7 @@ def migrate_create_context_snapshot(ctx: UpgradeContext) -> MigrateResult:
     now = datetime.now(timezone.utc).isoformat()
 
     # 优先使用模板文件
-    framework_dir = _get_framework_dir()
+    framework_dir = get_framework_dir()
     snapshot_tmpl = framework_dir / "templates" / "project" / "context-snapshot.md.tmpl"
     if snapshot_tmpl.exists():
         content = snapshot_tmpl.read_text(encoding="utf-8")
@@ -1253,6 +1258,178 @@ def migrate_write_version_marker_v3(ctx: UpgradeContext) -> MigrateResult:
 
 
 # ============================================================
+# Step 21: create_agents_dir (v4.0)
+# ============================================================
+
+def migrate_create_agents_dir(ctx: UpgradeContext) -> MigrateResult:
+    """v4.0: 创建 .claude/agents/ 目录并注入子代理定义文件。"""
+    agents_dir = ctx.project_dir / ".claude" / "agents"
+    framework_dir = get_framework_dir()
+    agents_src = framework_dir / "templates" / "agents"
+
+    if not agents_src.exists():
+        return MigrateResult("error", f"子代理模板目录不存在: {agents_src}")
+
+    agent_files = ["analyst.md", "developer.md", "verifier.md", "reviewer.md", "verify-reviewer.md"]
+
+    # 备份已有的 agents 目录
+    if agents_dir.exists() and not ctx.dry_run:
+        if ctx.backup_dir:
+            backup_agents = ctx.backup_dir / "agents"
+            shutil.copytree(agents_dir, backup_agents)
+            _log(ctx, f"已备份 .claude/agents/ → {backup_agents}")
+
+    if not ctx.dry_run:
+        agents_dir.mkdir(parents=True, exist_ok=True)
+
+    # 读取工具链配置用于模板变量替换
+    config = load_run_config(ctx.project_dir)
+    toolchain = detect_toolchain(ctx.project_dir, config)
+
+    _shared_rules_path = agents_src / "_shared-rules.md"
+    _shared_rules = "\n" + _shared_rules_path.read_text(encoding="utf-8") if _shared_rules_path.exists() else ""
+    copied = 0
+    for fname in agent_files:
+        src = agents_src / fname
+        dst = agents_dir / fname
+        if not src.exists():
+            _log(ctx, f"跳过: {fname}（模板不存在）")
+            continue
+        if not ctx.dry_run:
+            content = src.read_text(encoding="utf-8")
+            content = content.replace("{{FRAMEWORK_PATH}}", str(framework_dir))
+            content = content.replace("{{TEST_RUNNER}}", toolchain["test_runner"])
+            content = content.replace("{{PYTHON}}", toolchain["python"])
+            content += _shared_rules
+            dst.write_text(content, encoding="utf-8")
+        copied += 1
+        _log(ctx, f"注入: .claude/agents/{fname}")
+
+    return MigrateResult("applied", f"注入 {copied} 个子代理定义文件", copied)
+
+
+# ============================================================
+# Step 22: regenerate_claude_md_v4 (v4.0)
+# ============================================================
+
+def migrate_regenerate_claude_md_v4(ctx: UpgradeContext) -> MigrateResult:
+    """v4.0: 使用精简版模板重新生成 .claude/CLAUDE.md（仅 Leader 协议 + 子代理索引）。"""
+    framework_dir = get_framework_dir()
+    fw_tmpl = framework_dir / "templates" / "project" / "CLAUDE-framework.md.tmpl"
+    claude_md = ctx.project_dir / ".claude" / "CLAUDE.md"
+
+    if not fw_tmpl.exists():
+        return MigrateResult("error", f"v4.0 模板不存在: {fw_tmpl}")
+
+    if not claude_md.exists():
+        return MigrateResult("skipped", ".claude/CLAUDE.md 不存在，跳过")
+
+    # 提取现有的项目坑点内容
+    existing_content = claude_md.read_text(encoding="utf-8")
+    gotchas = ""
+
+    # 尝试从 v3.0 格式提取（"十一、已知坑点" 或 "八、已知坑点"）
+    for marker in ["## 十一、已知坑点与最佳实践", "## 八、已知坑点与最佳实践"]:
+        if marker in existing_content:
+            start = existing_content.index(marker) + len(marker)
+            # 找到下一个 ## 标题或文件结尾
+            rest = existing_content[start:]
+            end_markers = ["\n## 十二、", "\n## 九、", "\n## 十、"]
+            end = len(rest)
+            for em in end_markers:
+                if em in rest:
+                    end = min(end, rest.index(em))
+            gotchas_raw = rest[:end].strip()
+            # 跳过注释行
+            gotchas_lines = [
+                l for l in gotchas_raw.split("\n")
+                if not l.strip().startswith("<!--") and not l.strip().endswith("-->")
+            ]
+            gotchas = "\n".join(gotchas_lines).strip()
+            break
+
+    if not gotchas:
+        gotchas = "<!-- 开发过程中发现的坑点和最佳实践，由 developer 子代理自动维护 -->"
+
+    # 提取项目特有部分（非框架部分，如果存在 CLAUDE.md.tmpl 生成的内容）
+    project_part = ""
+    # 查找分隔线标记
+    if "\n---\n\n# Dev-Framework 运行时手册" in existing_content:
+        project_part = existing_content[:existing_content.index("\n---\n\n# Dev-Framework 运行时手册")]
+    elif "# Dev-Framework 运行时手册" in existing_content and not existing_content.startswith("# Dev-Framework 运行时手册"):
+        project_part = existing_content[:existing_content.index("# Dev-Framework 运行时手册")].rstrip("\n- ")
+
+    if not ctx.dry_run:
+        fw_content = fw_tmpl.read_text(encoding="utf-8")
+        fw_content = fw_content.replace("{{FRAMEWORK_PATH}}", str(framework_dir))
+        fw_content = fw_content.replace("{{PROJECT_GOTCHAS}}", gotchas)
+
+        config = load_run_config(ctx.project_dir)
+        toolchain = detect_toolchain(ctx.project_dir, config)
+        fw_content = fw_content.replace("{{TEST_RUNNER}}", toolchain["test_runner"])
+        fw_content = fw_content.replace("{{PYTHON}}", toolchain["python"])
+
+        if project_part:
+            final_content = project_part + "\n\n---\n\n" + fw_content
+        else:
+            final_content = fw_content
+
+        claude_md.write_text(final_content, encoding="utf-8")
+
+    return MigrateResult("applied", "重新生成 .claude/CLAUDE.md（v4.0 精简版）")
+
+
+# ============================================================
+# Step 23: update_gitignore_v4 (v4.0)
+# ============================================================
+
+def migrate_update_gitignore_v4(ctx: UpgradeContext) -> MigrateResult:
+    """v4.0: 更新 .gitignore 注释（agents/ 目录说明）。"""
+    gitignore = ctx.project_dir / ".gitignore"
+    if not gitignore.exists():
+        return MigrateResult("skipped", ".gitignore 不存在")
+
+    content = gitignore.read_text(encoding="utf-8")
+
+    # 更新注释：v3.0 → v4.0
+    old_comment = "v3.0 Agent 协议已合并到 CLAUDE.md"
+    new_comment = "v4.0 子代理协议位于 .claude/agents/"
+    if old_comment in content:
+        if not ctx.dry_run:
+            content = content.replace(old_comment, new_comment)
+            gitignore.write_text(content, encoding="utf-8")
+        return MigrateResult("applied", "更新 .gitignore 注释为 v4.0")
+
+    return MigrateResult("skipped", ".gitignore 中无 v3.0 注释标记")
+
+
+# ============================================================
+# Step 24: update_init_project_comment (v4.0)
+# ============================================================
+
+def migrate_update_init_project_comment(ctx: UpgradeContext) -> MigrateResult:
+    """v4.0: 更新 session-state.json 中的 agents 字段说明。"""
+    state_path = ctx.dev_state / "session-state.json"
+    if not state_path.exists():
+        return MigrateResult("skipped", "session-state.json 不存在")
+
+    # session-state.json 结构不变，无需修改
+    return MigrateResult("skipped", "session-state.json 结构不变")
+
+
+# ============================================================
+# Step 25: write_version_marker_v4 (v4.0)
+# ============================================================
+
+def migrate_write_version_marker_v4(ctx: UpgradeContext) -> MigrateResult:
+    """v4.0: 写入版本标记 .framework-version = '4.0'。"""
+    version_file = ctx.dev_state / ".framework-version"
+    if not ctx.dry_run:
+        version_file.write_text("4.0\n", encoding="utf-8")
+    return MigrateResult("applied", "版本标记更新为 4.0")
+
+
+# ============================================================
 # 主流程
 # ============================================================
 
@@ -1280,6 +1457,12 @@ MIGRATE_STEPS = [
     ("update_run_config_snapshot","v3.0: 添加 snapshot 配置",    migrate_update_run_config_snapshot),
     ("update_gitignore_v3",       "v3.0: .gitignore 更新",      migrate_update_gitignore_v3),
     ("write_version_marker_v3",   "写入 v3.0 版本标记",         migrate_write_version_marker_v3),
+    # v4.0 新增迁移步骤
+    ("create_agents_dir",         "v4.0: 创建 agents/ 目录",    migrate_create_agents_dir),
+    ("regenerate_claude_md_v4",   "v4.0: 重新生成 CLAUDE.md",   migrate_regenerate_claude_md_v4),
+    ("update_gitignore_v4",       "v4.0: .gitignore 注释更新",  migrate_update_gitignore_v4),
+    ("update_init_project_comment","v4.0: session-state 检查",   migrate_update_init_project_comment),
+    ("write_version_marker_v4",   "写入 v4.0 版本标记",         migrate_write_version_marker_v4),
 ]
 
 
@@ -1353,7 +1536,7 @@ def run_upgrade(ctx: UpgradeContext) -> bool:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="将已有项目升级到 dev-framework v3.0"
+        description="将已有项目升级到 dev-framework v4.0"
     )
     parser.add_argument(
         "--project-dir", required=True,
@@ -1379,7 +1562,7 @@ def main() -> None:
 
     project_dir = Path(args.project_dir).resolve()
     if not project_dir.exists():
-        print(f"ERROR: 项目目录不存在: {project_dir}")
+        print(f"[ERROR] 项目目录不存在: {project_dir}")
         sys.exit(1)
 
     dev_state = project_dir / ".claude" / "dev-state"

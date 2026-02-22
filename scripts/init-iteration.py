@@ -20,13 +20,19 @@ init-iteration.py — 在已有项目中初始化新一轮迭代
 
 import argparse
 import json
+import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
 # 添加 scripts 目录到 path 以导入 fw_utils
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fw_utils import validate_manifest
+from fw_utils import validate_manifest, validate_safe_id
+
+try:
+    import yaml
+except ImportError:
+    yaml = None  # type: ignore
 
 
 def check_stale_iterations(dev_state_dir: Path):
@@ -53,6 +59,99 @@ def check_stale_iterations(dev_state_dir: Path):
         # 检测命名不一致（iteration-0 是 init-project 生成的旧命名，保留兼容）
         if d.name.startswith("iteration-") and not d.name == "iteration-0":
             print(f"  [WARN] 发现旧命名格式 {d.name}，建议统一为 iter-N 格式")
+
+
+def _find_previous_iteration(dev_state: Path, current_iter_id: str) -> str | None:
+    """找到当前迭代的上一轮迭代 ID。"""
+    # 提取当前迭代编号
+    match = re.match(r"iter-(\d+)", current_iter_id)
+    if not match:
+        return None
+    current_num = int(match.group(1))
+    if current_num <= 0:
+        return None
+    prev_id = f"iter-{current_num - 1}"
+    if (dev_state / prev_id).is_dir():
+        return prev_id
+    return None
+
+
+def _collect_backlog(dev_state: Path, current_iter_id: str) -> list[dict]:
+    """扫描上一轮迭代的 task YAML，收集 status 非 PASS 的任务。
+
+    返回 [{id, title, status, iteration, reason}]
+    """
+    if yaml is None:
+        return []
+
+    prev_iter_id = _find_previous_iteration(dev_state, current_iter_id)
+    if not prev_iter_id:
+        return []
+
+    tasks_dir = dev_state / prev_iter_id / "tasks"
+    if not tasks_dir.exists():
+        return []
+
+    backlog = []
+    for task_file in sorted(tasks_dir.glob("*.yaml")):
+        try:
+            data = yaml.safe_load(task_file.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if not data or not isinstance(data, dict):
+            continue
+
+        status = data.get("status", "pending")
+        if status == "PASS":
+            continue  # 已完成，不纳入 backlog
+
+        task_id = data.get("id", task_file.stem)
+        title = data.get("title", "")
+        reason = ""
+        if status == "blocked":
+            depends = data.get("depends", [])
+            reason = f"依赖 {', '.join(depends)}" if depends else "blocked"
+        elif status in ("rework", "FAIL"):
+            reason = "验收/审查未通过"
+        elif status == "timeout":
+            reason = "执行超时"
+        elif status in ("pending", "in_progress", "ready_for_verify", "ready_for_review"):
+            reason = f"上轮未完成 (status={status})"
+        else:
+            reason = f"status={status}"
+
+        backlog.append({
+            "id": task_id,
+            "title": title,
+            "status": status,
+            "iteration": prev_iter_id,
+            "reason": reason,
+        })
+
+    return backlog
+
+
+def _generate_backlog_md(items: list[dict], new_iter_id: str, prev_iter_id: str) -> str:
+    """生成 Markdown 格式的 backlog 文件。"""
+    lines = [
+        f"# 延迟项 (Backlog) — {new_iter_id}",
+        f"> 以下项目从 {prev_iter_id} 延续。Leader 须在 Phase 1 决定处理方式。",
+        "",
+        "| CR | 标题 | 上轮状态 | 原因 |",
+        "|----|------|----------|------|",
+    ]
+    for item in items:
+        lines.append(
+            f"| {item['id']} | {item['title']} | {item['status']} | {item['reason']} |"
+        )
+    lines.extend([
+        "",
+        "## 处理决策",
+    ])
+    for item in items:
+        lines.append(f"- [ ] {item['id']}: (纳入 / 推迟 / 取消)")
+    lines.append("")
+    return "\n".join(lines)
 
 
 def init_iteration(
@@ -122,14 +221,39 @@ def init_iteration(
     )
     print(f"  生成: requirement-raw.md")
 
-    # 4. 生成空 decisions.md
-    decisions_path = iter_dir / "decisions.md"
-    decisions_path.write_text(
-        f"# 关键决策日志 — {iteration_id}\n\n"
-        f"> 记录本轮迭代中的关键技术决策。\n\n---\n",
-        encoding="utf-8",
-    )
-    print(f"  生成: decisions.md")
+    # 4. 收集上一轮延迟项 (Backlog)
+    backlog_items = _collect_backlog(dev_state, iteration_id)
+    prev_iter_id = _find_previous_iteration(dev_state, iteration_id)
+
+    if backlog_items and prev_iter_id:
+        # 生成 backlog.md
+        backlog_md = _generate_backlog_md(backlog_items, iteration_id, prev_iter_id)
+        backlog_path = iter_dir / "backlog.md"
+        backlog_path.write_text(backlog_md, encoding="utf-8")
+        print(f"  生成: backlog.md（{len(backlog_items)} 个延迟项来自 {prev_iter_id}）")
+
+        # 生成 decisions.md 时插入延迟项引用
+        decisions_path = iter_dir / "decisions.md"
+        decisions_content = (
+            f"# 关键决策日志 — {iteration_id}\n\n"
+            f"> 记录本轮迭代中的关键技术决策。\n\n"
+            f"## 延迟项处理\n\n"
+            f"> 来自 {prev_iter_id} 的 {len(backlog_items)} 个延迟项，详见 [backlog.md](backlog.md)。\n\n"
+        )
+        for item in backlog_items:
+            decisions_content += f"- [ ] {item['id']} ({item['title']}): (纳入 / 推迟 / 取消)\n"
+        decisions_content += "\n---\n"
+        decisions_path.write_text(decisions_content, encoding="utf-8")
+        print(f"  生成: decisions.md（含延迟项处理 checklist）")
+    else:
+        # 无延迟项，生成空 decisions.md
+        decisions_path = iter_dir / "decisions.md"
+        decisions_path.write_text(
+            f"# 关键决策日志 — {iteration_id}\n\n"
+            f"> 记录本轮迭代中的关键技术决策。\n\n---\n",
+            encoding="utf-8",
+        )
+        print(f"  生成: decisions.md")
 
     # 5. 更新 session-state.json
     session_state_path = dev_state / "session-state.json"
@@ -154,8 +278,12 @@ def init_iteration(
         "completed": 0,
         "in_progress": 0,
         "pending": 0,
+        "ready_for_verify": 0,
+        "ready_for_review": 0,
         "rework": 0,
         "failed": 0,
+        "blocked": 0,
+        "timeout": 0,
     })
     session_state["consecutive_failures"] = 0
     session_state_path.write_text(
@@ -170,7 +298,7 @@ def init_iteration(
     print()
     print("下一步:")
     print(f"  1. 启动 Claude Code，进入 Phase 1 需求深化")
-    print(f"  2. Analyst Agent 将读取 requirement-raw.md 并生成 requirement-spec.md")
+    print(f"  2. analyst 子代理将读取 requirement-raw.md 并生成 requirement-spec.md")
     print(f"  3. 或先运行基线测试: python dev-framework/scripts/run-baseline.py")
 
 
@@ -184,6 +312,7 @@ def main() -> None:
         "--iteration-id", required=True, help="迭代 ID（如 iter-3）"
     )
     args = parser.parse_args()
+    validate_safe_id(args.iteration_id, "iteration-id")
     init_iteration(Path(args.project_dir), args.requirement, args.iteration_id)
 
 

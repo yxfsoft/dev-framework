@@ -51,6 +51,7 @@ _check_cache: dict = {}
 # 添加 scripts 目录到 path 以导入 fw_utils
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fw_utils import (
+    GIT_EMPTY_TREE, validate_safe_id,
     load_baseline, parse_pytest_passed, detect_toolchain,
     load_run_config, build_test_cmd, build_lint_cmd,
 )
@@ -71,7 +72,7 @@ def gate_0_environment(project_dir: Path, **kwargs) -> bool:
         encoding="utf-8", errors="replace",
     )
     clean = result.stdout.strip() == ""
-    print(f"  {'PASS' if clean else 'WARN'}  git 工作区{'干净' if clean else '有未提交改动'}")
+    print(f"  {'[PASS]' if clean else '[WARN]'}  git 工作区{'干净' if clean else '有未提交改动'}")
 
     # Python 可用
     result = subprocess.run(
@@ -80,7 +81,7 @@ def gate_0_environment(project_dir: Path, **kwargs) -> bool:
     )
     py_ok = result.returncode == 0
     checks.append(("Python 可用", py_ok))
-    print(f"  {'PASS' if py_ok else 'FAIL'}  Python: {result.stdout.strip()}")
+    print(f"  {'[PASS]' if py_ok else '[FAIL]'}  Python: {result.stdout.strip()}")
 
     # pytest 可用（通过工具链检测）
     import shlex
@@ -91,15 +92,15 @@ def gate_0_environment(project_dir: Path, **kwargs) -> bool:
     )
     pytest_ok = result.returncode == 0
     checks.append(("pytest 可用", pytest_ok))
-    print(f"  {'PASS' if pytest_ok else 'FAIL'}  pytest (via {toolchain['test_runner']})")
+    print(f"  {'[PASS]' if pytest_ok else '[FAIL]'}  pytest (via {toolchain['test_runner']})")
 
     # 基线检查（WARN，不影响 all_pass）
     baseline = load_baseline(project_dir)
     if baseline and baseline.get("git_commit", "") == "":
-        print("  WARN  基线尚未运行（git_commit 为空），建议先运行 run-baseline.py")
+        print("  [WARN]  基线尚未运行（git_commit 为空），建议先运行 run-baseline.py")
 
     all_pass = all(c[1] for c in checks)
-    print(f"\n  Gate 0: {'PASS' if all_pass else 'FAIL'}")
+    print(f"\n  Gate 0: {'[PASS]' if all_pass else '[FAIL]'}")
     return all_pass
 
 
@@ -116,12 +117,12 @@ def gate_1_requirement(project_dir: Path, **kwargs) -> bool | str:
                 state = json.loads(state_path.read_text(encoding="utf-8"))
                 iteration_id = state.get("current_iteration")
             except (json.JSONDecodeError, OSError) as e:
-                print(f"  WARN  session-state.json 读取/解析失败: {e}")
+                print(f"  [WARN]  session-state.json 读取/解析失败: {e}")
 
     if not iteration_id:
-        print("  SKIP  未指定 iteration-id，且无法从 session-state.json 读取（请手动指定 --iteration-id）")
+        print("  [SKIP]  未指定 iteration-id，且无法从 session-state.json 读取（请手动指定 --iteration-id）")
         print("  提示: Gate 1 需要人工确认需求规格书，此处仅检查文件是否存在")
-        print("\n  Gate 1: SKIP（非 PASS，因缺少 iteration-id 跳过检查。请手动确认需求规格书。）")
+        print("\n  Gate 1: [SKIP]（非 PASS，因缺少 iteration-id 跳过检查。请手动确认需求规格书。）")
         return "SKIP"
 
     spec_path = (
@@ -129,13 +130,13 @@ def gate_1_requirement(project_dir: Path, **kwargs) -> bool | str:
     )
     if spec_path.exists():
         content = spec_path.read_text(encoding="utf-8")
-        print(f"  PASS  requirement-spec.md 存在 ({len(content)} 字符)")
-        print(f"\n  Gate 1: PASS (需人工确认)")
+        print(f"  [PASS]  requirement-spec.md 存在 ({len(content)} 字符)")
+        print(f"\n  Gate 1: [PASS] (需人工确认)")
         return True
     else:
-        print(f"  FAIL  requirement-spec.md 不存在: {spec_path}")
+        print(f"  [FAIL]  requirement-spec.md 不存在: {spec_path}")
         print("  提示: 需先完成 Phase 1 需求深化，生成 requirement-spec.md")
-        print(f"\n  Gate 1: FAIL")
+        print(f"\n  Gate 1: [FAIL]")
         return False
 
 
@@ -151,10 +152,10 @@ def gate_2_task_plan(project_dir: Path, **kwargs) -> bool:
                 state = json.loads(state_path.read_text(encoding="utf-8"))
                 iteration_id = state.get("current_iteration")
             except (json.JSONDecodeError, OSError) as e:
-                print(f"  WARN  session-state.json 读取/解析失败: {e}")
+                print(f"  [WARN]  session-state.json 读取/解析失败: {e}")
 
     if not iteration_id:
-        print("  SKIP  未指定 iteration-id")
+        print("  [SKIP]  未指定 iteration-id")
         return True
 
     iter_dir = project_dir / ".claude" / "dev-state" / iteration_id
@@ -168,9 +169,9 @@ def gate_2_task_plan(project_dir: Path, **kwargs) -> bool:
         try:
             import yaml
         except ImportError:
-            print("  FAIL  PyYAML 未安装，无法执行结构化校验")
+            print("  [FAIL]  PyYAML 未安装，无法执行结构化校验")
             print("  提示: pip install PyYAML")
-            print(f"\n  Gate 2: FAIL")
+            print(f"\n  Gate 2: [FAIL]")
             return False
 
         verify_files = {f.stem for f in verify_dir.glob("*.py")} if verify_dir.exists() else set()
@@ -217,14 +218,14 @@ def gate_2_task_plan(project_dir: Path, **kwargs) -> bool:
                 errors.append(f"{tid}: 缺少 verify/{tid}.py")
 
     if errors:
-        print(f"  FAIL  结构化校验发现 {len(errors)} 个问题:")
+        print(f"  [FAIL]  结构化校验发现 {len(errors)} 个问题:")
         for e in errors:
             print(f"        {e}")
-        print(f"\n  Gate 2: FAIL")
+        print(f"\n  Gate 2: [FAIL]")
         return False
 
-    print(f"  PASS  结构化校验通过")
-    print(f"\n  Gate 2: PASS (需人工确认任务拆分方案)")
+    print(f"  [PASS]  结构化校验通过")
+    print(f"\n  Gate 2: [PASS] (需人工确认任务拆分方案)")
     return True
 
 
@@ -235,13 +236,13 @@ def gate_3_l0_verify(project_dir: Path, **kwargs) -> bool:
     task_id = kwargs.get("task_id")
 
     if not iteration_id or not task_id:
-        print("  FAIL  Gate 3 需要 --iteration-id 和 --task-id 参数")
+        print("  [FAIL]  Gate 3 需要 --iteration-id 和 --task-id 参数")
         return False
 
     # 调用 run-verify.py
     script_path = Path(__file__).parent / "run-verify.py"
     if not script_path.exists():
-        print(f"  FAIL  验收脚本不存在: {script_path}")
+        print(f"  [FAIL]  验收脚本不存在: {script_path}")
         return False
     result = subprocess.run(
         [
@@ -259,7 +260,7 @@ def gate_3_l0_verify(project_dir: Path, **kwargs) -> bool:
         print(result.stderr, file=sys.stderr)
 
     passed = result.returncode == 0
-    print(f"\n  Gate 3: {'PASS' if passed else 'FAIL'}")
+    print(f"\n  Gate 3: {'[PASS]' if passed else '[FAIL]'}")
     return passed
 
 
@@ -267,7 +268,7 @@ def gate_4_regression(project_dir: Path, **kwargs) -> bool:
     """Gate 4: L1 回归检查"""
     print("\n[Gate 4] L1 回归检查")
     passed = _run_l1_regression(project_dir)
-    print(f"\n  Gate 4: {'PASS' if passed else 'FAIL'}")
+    print(f"\n  Gate 4: {'[PASS]' if passed else '[FAIL]'}")
     return passed
 
 
@@ -282,7 +283,11 @@ def _run_l1_regression(project_dir: Path) -> bool:
     toolchain = detect_toolchain(project_dir, config)
 
     # 从 run-config.yaml 读取测试目录，默认回退 "tests/unit/"
-    test_dir = config.get("toolchain", {}).get("test_dir", config.get("test_dir", "tests/unit/"))
+    test_dir = (
+        config.get("toolchain", {}).get("test_dir")
+        or config.get("test_dir")
+        or "tests/unit/"
+    )
     test_cmd = build_test_cmd(toolchain, test_dir, ["-q", "--tb=no"])
     result = subprocess.run(
         test_cmd,
@@ -294,7 +299,7 @@ def _run_l1_regression(project_dir: Path) -> bool:
     print(f"  输出: {output.strip()[-300:]}")
 
     if result.returncode != 0:
-        print("  FAIL  L1 测试有失败")
+        print("  [FAIL]  L1 测试有失败")
         _check_cache[cache_key] = False
         return False
 
@@ -305,12 +310,12 @@ def _run_l1_regression(project_dir: Path) -> bool:
         print(f"  基线: {baseline_passed} passed")
         print(f"  当前: {current_passed} passed")
         if current_passed < baseline_passed:
-            print(f"  FAIL  测试数量下降: {current_passed} < {baseline_passed} (可能有测试被删除)")
+            print(f"  [FAIL]  测试数量下降: {current_passed} < {baseline_passed} (可能有测试被删除)")
             _check_cache[cache_key] = False
             return False
-        print(f"  PASS  无回归（基线 {baseline_passed}, 当前 {current_passed}）")
+        print(f"  [PASS]  无回归（基线 {baseline_passed}, 当前 {current_passed}）")
     else:
-        print(f"  PASS  无基线，仅检查是否有失败（当前 {current_passed} passed）")
+        print(f"  [PASS]  无基线，仅检查是否有失败（当前 {current_passed} passed）")
 
     _check_cache[cache_key] = True
     return True
@@ -334,12 +339,12 @@ def _run_l2_integration(project_dir: Path) -> bool:
             encoding="utf-8", errors="replace",
         )
         if result.returncode != 0:
-            print("  FAIL  L2 集成测试有失败")
+            print("  [FAIL]  L2 集成测试有失败")
             _check_cache[cache_key] = False
             return False
-        print("  PASS  L2 集成测试通过")
+        print("  [PASS]  L2 集成测试通过")
     else:
-        print("  SKIP  无 L2 测试目录")
+        print("  [SKIP]  无 L2 测试目录")
     _check_cache[cache_key] = True
     return True
 
@@ -361,18 +366,18 @@ def _run_lint(project_dir: Path) -> bool:
             encoding="utf-8", errors="replace",
         )
         if result.returncode != 0:
-            print("  FAIL  Lint 有问题")
+            print("  [FAIL]  Lint 有问题")
             _check_cache[cache_key] = False
             return False
-        print("  PASS  Lint 通过")
+        print("  [PASS]  Lint 通过")
     except FileNotFoundError:
         lint_required = config.get("toolchain", {}).get("lint_required", False)
         if lint_required:
-            print("  FAIL  Lint 工具未安装（lint_required=true）")
+            print("  [FAIL]  Lint 工具未安装（lint_required=true）")
             _check_cache[cache_key] = False
             return False
-        print("  SKIP  Lint 工具未安装（lint_required=false，非强制）")
-        print(f"  ⚠ WARNING: lint 工具未找到，此检查被 SKIP（非 PASS）。")
+        print("  [SKIP]  Lint 工具未安装（lint_required=false，非强制）")
+        print(f"  [WARN] lint 工具未找到，此检查被 SKIP（非 PASS）。")
         print(f"  提示: 可在 run-config.yaml 的 toolchain.linter 中配置 lint 命令")
         print(f"  提示: 设置 toolchain.lint_required=true 可将此检查变为强制")
     _check_cache[cache_key] = True
@@ -395,13 +400,21 @@ def gate_5_integration(project_dir: Path, **kwargs) -> bool:
     # TODO/FIXME 扫描（WARN，不阻断 Gate 5）
     print("\n  TODO/FIXME 扫描...")
     try:
+        count_result = subprocess.run(
+            ["git", "rev-list", "--count", "HEAD"],
+            capture_output=True, text=True, cwd=project_dir,
+            encoding="utf-8", errors="replace",
+        )
+        commit_count = int(count_result.stdout.strip()) if count_result.returncode == 0 else 0
+        diff_ref = "HEAD~1" if commit_count > 1 else GIT_EMPTY_TREE
         diff_result = subprocess.run(
-            ["git", "diff", "--name-only", "HEAD~1"],
+            ["git", "diff", "--name-only", diff_ref],
             capture_output=True, text=True, cwd=project_dir,
             encoding="utf-8", errors="replace",
         )
         changed_files = [f for f in diff_result.stdout.strip().splitlines() if f.endswith(".py")]
-    except Exception:
+    except Exception as e:
+        print(f"  [WARN] git diff 获取变更文件失败: {e}")
         changed_files = []
     todo_warnings: list[str] = []
     for fname in changed_files:
@@ -416,15 +429,15 @@ def gate_5_integration(project_dir: Path, **kwargs) -> bool:
         except OSError:
             continue
     if todo_warnings:
-        print(f"  WARN  发现 {len(todo_warnings)} 处 TODO/FIXME：")
+        print(f"  [WARN]  发现 {len(todo_warnings)} 处 TODO/FIXME：")
         for entry in todo_warnings[:10]:
             print(f"        {entry}")
         if len(todo_warnings) > 10:
             print(f"        ... 还有 {len(todo_warnings) - 10} 处")
     else:
-        print("  PASS  无 TODO/FIXME")
+        print("  [PASS]  无 TODO/FIXME")
 
-    print(f"\n  Gate 5: PASS")
+    print(f"\n  Gate 5: [PASS]")
     return True
 
 
@@ -441,24 +454,24 @@ def gate_6_code_review(project_dir: Path, **kwargs) -> bool | str:
                 state = json.loads(state_path.read_text(encoding="utf-8"))
                 iteration_id = state.get("current_iteration")
             except (json.JSONDecodeError, OSError) as e:
-                print(f"  WARN  session-state.json 读取/解析失败: {e}")
+                print(f"  [WARN]  session-state.json 读取/解析失败: {e}")
 
     if not iteration_id:
-        print("  SKIP  未指定 iteration-id")
-        print("\n  Gate 6: SKIP（非 PASS，因缺少 iteration-id 跳过检查。请手动确认代码审查状态。）")
+        print("  [SKIP]  未指定 iteration-id")
+        print("\n  Gate 6: [SKIP]（非 PASS，因缺少 iteration-id 跳过检查。请手动确认代码审查状态。）")
         return "SKIP"
 
     tasks_dir = project_dir / ".claude" / "dev-state" / iteration_id / "tasks"
     if not tasks_dir.exists():
-        print(f"  WARN  任务目录不存在: {tasks_dir}")
+        print(f"  [WARN]  任务目录不存在: {tasks_dir}")
         return True
 
     try:
         import yaml
     except ImportError:
-        print("  FAIL  PyYAML 未安装，无法解析任务文件")
+        print("  [FAIL]  PyYAML 未安装，无法解析任务文件")
         print("  提示: pip install PyYAML")
-        print(f"\n  Gate 6: FAIL")
+        print(f"\n  Gate 6: [FAIL]")
         return False
 
     # 如果指定了 task_id，只检查该任务；否则检查所有 ready_for_review 的任务
@@ -477,7 +490,7 @@ def gate_6_code_review(project_dir: Path, **kwargs) -> bool | str:
             if not task:
                 continue
         except Exception as e:
-            print(f"  WARN  解析 {tf.name} 失败: {e}", file=sys.stderr)
+            print(f"  [WARN]  解析 {tf.name} 失败: {e}", file=sys.stderr)
             continue
 
         status = task.get("status", "")
@@ -487,20 +500,20 @@ def gate_6_code_review(project_dir: Path, **kwargs) -> bool | str:
         review_result = task.get("review_result")
         tid = task.get("id", tf.stem)
         if review_result and review_result.get("verdict") == "PASS":
-            print(f"  PASS  {tid}: Reviewer 已 PASS")
+            print(f"  [PASS]  {tid}: reviewer 子代理已 PASS")
             reviewed += 1
         elif review_result and review_result.get("verdict") == "REWORK":
-            print(f"  FAIL  {tid}: Reviewer 判定 REWORK")
+            print(f"  [FAIL]  {tid}: reviewer 子代理判定 REWORK")
             not_reviewed += 1
         elif status == "ready_for_review":
-            print(f"  WAIT  {tid}: 等待 Reviewer 审查")
+            print(f"  [WAIT]  {tid}: 等待 reviewer 子代理审查")
             not_reviewed += 1
 
     if not_reviewed > 0:
-        print(f"\n  Gate 6: FAIL ({not_reviewed} 个任务未通过审查)")
+        print(f"\n  Gate 6: [FAIL] ({not_reviewed} 个任务未通过审查)")
         return False
 
-    print(f"\n  Gate 6: PASS ({reviewed} 个任务已审查通过)")
+    print(f"\n  Gate 6: [PASS] ({reviewed} 个任务已审查通过)")
     return True
 
 
@@ -527,7 +540,7 @@ def check_mock_compliance(project_dir: Path) -> bool:
 
     tests_dir = project_dir / "tests"
     if not tests_dir.exists():
-        print("  SKIP  无 tests 目录")
+        print("  [SKIP]  无 tests 目录")
         return True
 
     for py_file in tests_dir.rglob("*.py"):
@@ -535,7 +548,31 @@ def check_mock_compliance(project_dir: Path) -> bool:
             content = py_file.read_text(encoding="utf-8", errors="ignore")
         except OSError:
             continue
-        if not mock_import_pattern.search(content) and not mock_call_pattern.search(content):
+        has_mock_import = mock_import_pattern.search(content)
+        # 逐行匹配 mock 调用，跳过注释行和文档字符串内容
+        has_mock_call = False
+        in_docstring = False
+        for line in content.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("#"):
+                continue
+            # 文档字符串状态机：检测三引号开闭
+            if not in_docstring:
+                if stripped.startswith('"""') or stripped.startswith("'''"):
+                    quote = stripped[:3]
+                    # 单行文档字符串（开闭在同一行）
+                    if stripped.count(quote) >= 2:
+                        continue
+                    in_docstring = True
+                    continue
+            else:
+                if '"""' in stripped or "'''" in stripped:
+                    in_docstring = False
+                continue
+            if mock_call_pattern.search(line):
+                has_mock_call = True
+                break
+        if not has_mock_import and not has_mock_call:
             continue
 
         rel_path = str(py_file.relative_to(project_dir))
@@ -560,14 +597,14 @@ def check_mock_compliance(project_dir: Path) -> bool:
             violations.append(f"{rel_path}: 缺少 # MOCK-EXPIRE-WHEN: 声明")
 
     if violations:
-        print(f"  FAIL  {len(violations)} 个 Mock 合规问题：")
+        print(f"  [FAIL]  {len(violations)} 个 Mock 合规问题：")
         for v in violations[:10]:
             print(f"        {v}")
         if len(violations) > 10:
             print(f"        ... 还有 {len(violations) - 10} 个")
         _check_cache[cache_key] = False
         return False
-    print("  PASS  Mock 使用合规（声明完整 + 真实测试存在）")
+    print("  [PASS]  Mock 使用合规（声明完整 + 真实测试存在）")
     _check_cache[cache_key] = True
     return True
 
@@ -606,15 +643,15 @@ def gate_7_final(project_dir: Path, **kwargs) -> bool:
                 continue
 
     if not_impl_found:
-        print(f"  FAIL  发现 {len(not_impl_found)} 处 NotImplementedError（禁止空实现）")
+        print(f"  [FAIL]  发现 {len(not_impl_found)} 处 NotImplementedError（禁止空实现）")
         for entry in not_impl_found[:5]:
             print(f"        {entry}")
         if len(not_impl_found) > 5:
             print(f"        ... 还有 {len(not_impl_found) - 5} 处")
-        print(f"\n  Gate 7: FAIL")
+        print(f"\n  Gate 7: [FAIL]")
         return False
     else:
-        print("  PASS  无 NotImplementedError")
+        print("  [PASS]  无 NotImplementedError")
 
     # init-mode (iter-0) 时检查 feature-checklist.json
     state_path = project_dir / ".claude" / "dev-state" / "session-state.json"
@@ -637,19 +674,19 @@ def gate_7_final(project_dir: Path, **kwargs) -> bool:
                         if fstatus != "PASS":
                             not_pass.append(f"{fname}: {fstatus}")
                     if not_pass:
-                        print(f"  FAIL  {len(not_pass)} 个 feature 未通过：")
+                        print(f"  [FAIL]  {len(not_pass)} 个 feature 未通过：")
                         for entry in not_pass:
                             print(f"        {entry}")
-                        print(f"\n  Gate 7: FAIL")
+                        print(f"\n  Gate 7: [FAIL]")
                         return False
                     else:
-                        print("  PASS  所有 feature 均为 PASS")
+                        print("  [PASS]  所有 feature 均为 PASS")
                 except Exception as e:
-                    print(f"  FAIL  feature-checklist.json 解析失败: {e}")
-                    print(f"\n  Gate 7: FAIL")
+                    print(f"  [FAIL]  feature-checklist.json 解析失败: {e}")
+                    print(f"\n  Gate 7: [FAIL]")
                     return False
 
-    print(f"\n  Gate 7: PASS")
+    print(f"\n  Gate 7: [PASS]")
     return True
 
 
@@ -667,9 +704,13 @@ def main() -> None:
     parser.add_argument("--all", action="store_true", help="检查所有门控（跳过需要额外参数的 gate_3）")
 
     args = parser.parse_args()
+    if args.iteration_id:
+        validate_safe_id(args.iteration_id, "iteration-id")
+    if args.task_id:
+        validate_safe_id(args.task_id, "task-id")
     project_dir = Path(args.project_dir).resolve()
     if not project_dir.is_dir():
-        print(f"ERROR: --project-dir 目录不存在: {project_dir}")
+        print(f"[ERROR] --project-dir 目录不存在: {project_dir}")
         sys.exit(1)
 
     extra = {

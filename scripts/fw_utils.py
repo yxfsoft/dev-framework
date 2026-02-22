@@ -12,6 +12,7 @@ import json
 import re
 import shlex
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -25,8 +26,27 @@ except ImportError:
 # Phase 常量（全局唯一定义，所有脚本共用）
 # ============================================================
 
-PHASE_ORDER = ["phase_0", "phase_1", "phase_2", "phase_3", "phase_3.5", "phase_4", "phase_5"]
-PHASE_NUMS = [0, 1, 2, 3, 3.5, 4, 5]
+_PHASES = ((0, "phase_0"), (1, "phase_1"), (2, "phase_2"), (3, "phase_3"),
+           (3.5, "phase_3.5"), (4, "phase_4"), (5, "phase_5"))
+PHASE_NUMS = [n for n, _ in _PHASES]
+PHASE_ORDER = [s for _, s in _PHASES]
+
+# git 空树哈希（SHA-1），用作无提交时的 diff 基准
+GIT_EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+
+# ============================================================
+# 任务状态常量
+# ============================================================
+
+STATUS_PASS = "PASS"
+STATUS_FAIL = "FAIL"
+STATUS_PENDING = "pending"
+STATUS_IN_PROGRESS = "in_progress"
+STATUS_REWORK = "rework"
+STATUS_BLOCKED = "blocked"
+STATUS_TIMEOUT = "timeout"
+STATUS_READY_FOR_VERIFY = "ready_for_verify"
+STATUS_READY_FOR_REVIEW = "ready_for_review"
 
 
 # ============================================================
@@ -86,21 +106,34 @@ def detect_toolchain(project_dir: Path, config: dict) -> dict:
         detected["python"] = sys.executable
 
     # 验证检测到的工具是否在 PATH 中
+    def _fallback(k: str) -> str:
+        """回退到标准 Python 命令。"""
+        if k == "test_runner":
+            return f"{sys.executable} -m pytest"
+        elif k == "linter":
+            return f"{sys.executable} -m ruff check ."
+        elif k == "formatter":
+            return f"{sys.executable} -m ruff format --check ."
+        else:  # python
+            return sys.executable
+
     for key in ("test_runner", "linter", "formatter", "python"):
         cmd = detected[key]
         # 提取命令的第一个词（如 "uv run pytest" → "uv"）
-        first_word = cmd.split()[0] if cmd else ""
+        first_word = (cmd.split() or [""])[0]
         if first_word and first_word != sys.executable and shutil.which(first_word) is None:
             print(f"  [WARN] {key}: 命令 '{first_word}' 不在 PATH 中，回退到标准 Python")
-            # 回退到标准 Python 命令
-            if key == "test_runner":
-                detected[key] = f"{sys.executable} -m pytest"
-            elif key == "linter":
-                detected[key] = f"{sys.executable} -m ruff check ."
-            elif key == "formatter":
-                detected[key] = f"{sys.executable} -m ruff format --check ."
-            elif key == "python":
-                detected[key] = sys.executable
+            detected[key] = _fallback(key)
+        elif " " in cmd and first_word != sys.executable and shutil.which(first_word) is not None:
+            # 复合命令: shutil.which 通过后，执行 --version 实际验证
+            try:
+                subprocess.run(
+                    shlex.split(cmd.split()[0]) + ["--version"],
+                    capture_output=True, timeout=10,
+                )
+            except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+                print(f"  [WARN] {key}: 复合命令 '{cmd}' --version 验证失败，回退到标准 Python")
+                detected[key] = _fallback(key)
 
     return detected
 
@@ -150,9 +183,13 @@ def load_run_config(project_dir: Path) -> dict:
     if not config_path.exists():
         return {}
     if yaml is None:
-        print("WARNING: PyYAML 未安装，无法加载 run-config.yaml，返回空配置")
+        print("[WARN] PyYAML 未安装，无法加载 run-config.yaml")
         return {}
-    return yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+    try:
+        return yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+    except yaml.YAMLError as e:
+        print(f"[ERROR] run-config.yaml 解析失败: {e}")
+        return {}
 
 
 def load_session_state(project_dir: Path) -> dict:
@@ -163,7 +200,7 @@ def load_session_state(project_dir: Path) -> dict:
     try:
         return json.loads(state_path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError) as e:
-        print(f"WARNING: 读取 session-state.json 失败: {e}")
+        print(f"[WARN] 读取 session-state.json 失败: {e}")
         return {}
 
 
@@ -175,7 +212,7 @@ def load_baseline(project_dir: Path) -> dict | None:
     try:
         return json.loads(baseline_path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError) as e:
-        print(f"WARNING: 读取 baseline.json 失败: {e}")
+        print(f"[WARN] 读取 baseline.json 失败: {e}")
         return None
 
 
@@ -198,14 +235,28 @@ def validate_manifest(manifest: dict) -> list[str]:
     return errors
 
 
+def validate_safe_id(value: str, label: str = "id") -> None:
+    """校验 ID 不包含路径遍历字符（..、/、\\），不安全时终止进程。"""
+    if ".." in value or "/" in value or "\\" in value:
+        print(f"[ERROR] {label} 包含非法字符: {value}")
+        sys.exit(1)
+
+
 def load_task_yaml(task_path: Path) -> dict | None:
     """加载单个任务 YAML 文件，返回字典。"""
     if yaml is None:
-        print("ERROR: PyYAML 未安装。运行: pip install PyYAML>=6.0")
+        print("[ERROR] PyYAML 未安装。运行: pip install PyYAML>=6.0")
         return None
     if not task_path.exists():
         return None
-    return yaml.safe_load(task_path.read_text(encoding="utf-8"))
+    try:
+        return yaml.safe_load(task_path.read_text(encoding="utf-8"))
+    except yaml.YAMLError as e:
+        print(f"[ERROR] YAML 解析失败 ({task_path}): {e}")
+        return None
+    except OSError as e:
+        print(f"[ERROR] 文件读取失败 ({task_path}): {e}")
+        return None
 
 
 def save_task_yaml(task_path: Path, task: dict) -> None:
@@ -214,7 +265,7 @@ def save_task_yaml(task_path: Path, task: dict) -> None:
     注意：yaml.dump 会丢失原文件注释。
     """
     if yaml is None:
-        print("ERROR: PyYAML 未安装，无法保存任务文件")
+        print("[ERROR] PyYAML 未安装，无法保存任务文件")
         return
     task_path.write_text(
         yaml.dump(task, allow_unicode=True, default_flow_style=False, sort_keys=False),

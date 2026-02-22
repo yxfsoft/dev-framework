@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-init-project.py — 初始化新项目的开发框架 (v3.0)
+init-project.py — 初始化新项目的开发框架 (v4.0)
 
 用法:
     python dev-framework/scripts/init-project.py \
@@ -10,7 +10,8 @@ init-project.py — 初始化新项目的开发框架 (v3.0)
 
 执行后在目标项目中生成:
     .claude/dev-state/      开发状态目录
-    .claude/CLAUDE.md       项目宪法（需手动定制；v3.0 已合并 Agent 协议）
+    .claude/CLAUDE.md       项目宪法（需手动定制；v4.0 Leader 协议 + 子代理索引）
+    .claude/agents/         子代理定义文件
     ARCHITECTURE.md         架构决策记录
     scripts/verify/         验收脚本目录
 """
@@ -26,15 +27,7 @@ from pathlib import Path
 
 # ── 框架内部导入 ──────────────────────────────────────────
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fw_utils import detect_toolchain, load_run_config
-
-
-def get_framework_dir() -> Path:
-    """获取框架根目录。支持 DEV_FRAMEWORK_DIR 环境变量覆盖。"""
-    env_dir = os.environ.get("DEV_FRAMEWORK_DIR")
-    if env_dir:
-        return Path(env_dir)
-    return Path(__file__).parent.parent
+from fw_utils import detect_toolchain, load_run_config, get_framework_dir
 
 
 def append_gitignore(project_dir: Path):
@@ -49,7 +42,7 @@ def append_gitignore(project_dir: Path):
 
     rules = f"""
 {marker}
-# 框架注入文件（脚本副本、配置；v3.0 Agent 协议已合并到 CLAUDE.md）
+# 框架注入文件（脚本副本、配置；v4.0 子代理协议位于 .claude/agents/）
 .claude/dev-state/
 
 # 迭代记录（task YAML、verify 脚本、manifest）
@@ -77,22 +70,47 @@ def append_gitignore(project_dir: Path):
     print(f"  已追加框架 .gitignore 规则（{len(rules.splitlines())} 行）")
 
 
-def _setup_git_hooks(project_dir: Path) -> None:
+def _setup_git_hooks(project_dir: Path, toolchain: dict | None = None) -> None:
     """生成 Git hooks（pre-commit / commit-msg / pre-push）。
 
-    使用 sh+python polyglot 确保 Windows/Mac/Linux 跨平台兼容。
+    v4.0: 拆分为 shell 入口 + Python 脚本两层结构。
+    Shell 入口负责跨平台 Python 路径检测，Python 脚本为纯 Python 逻辑。
+    Unicode 符号替换为 ASCII 以避免 GBK 终端 UnicodeEncodeError。
     """
     git_hooks_dir = project_dir / ".git" / "hooks"
     if not git_hooks_dir.exists():
         print(f"  跳过: Git hooks（.git/hooks/ 不存在，请先 git init）")
         return
 
-    # pre-commit: 空实现检查 + 空 pass 占位检查 + Mock 合规扫描
-    pre_commit = '''\
-#!/bin/sh
-"exec" "$(command -v python3 || command -v python)" "$0" "$@"
-# --- 以下为 Python 代码 ---
-"""pre-commit hook: NotImplementedError 检查 + 空 pass 占位检查 + Mock 合规扫描"""
+    # 获取 Python 路径（优先使用 toolchain 检测结果）
+    python_path = "python3"
+    if toolchain and toolchain.get("python"):
+        _py = toolchain["python"]
+        # 如果是 "uv run python" 等复合命令，取第一个词作为回退，但 hook 入口
+        # 需要直接调用 python 解释器，所以只用简单路径
+        if " " not in _py:
+            python_path = _py
+        else:
+            # 复合命令（如 "uv run python"）不适用于 shell 入口的 exec
+            # 保持 python3 作为默认，让 shell 入口的 for 循环搜索
+            python_path = "python3"
+
+    def _make_shell_entry(hook_name: str) -> str:
+        """生成 shell 入口脚本（所有 Hook 共用模板，仅 hook 名不同）。"""
+        return (
+            f"#!/bin/sh\n"
+            f"# dev-framework hook — cross-platform Python detection\n"
+            f'for cmd in "{python_path}" python3 python; do\n'
+            f'    command -v "$cmd" >/dev/null 2>&1 && '
+            f'exec "$cmd" "$(dirname "$0")/{hook_name}.py" "$@"\n'
+            f"done\n"
+            f'echo "[dev-framework] Python not found" >&2; exit 1\n'
+        )
+
+    # ── pre-commit.py ─────────────────────────────────────────
+    pre_commit_py = '''\
+#!/usr/bin/env python3
+"""pre-commit hook: NotImplementedError + empty pass + Mock compliance check."""
 import re, subprocess, sys
 
 result = subprocess.run(["git", "diff", "--cached", "--name-only"], capture_output=True, text=True)
@@ -108,39 +126,39 @@ for fp in changed:
     for i, line in enumerate(content.splitlines(), 1):
         stripped = line.strip()
         if "NotImplementedError" in line and not stripped.startswith("#"):
-            errors.append(f"{fp}:{i} — NotImplementedError")
+            errors.append(f"{fp}:{i} -- NotImplementedError")
         if stripped == "pass" and i > 1:
-            # 检查前一行是否为函数/类定义或 except，疑似空占位
             prev_lines = content.splitlines()[:i-1]
             if prev_lines:
                 prev = prev_lines[-1].strip()
                 if prev.endswith(":") and any(kw in prev for kw in ["def ", "class ", "elif ", "else", "if "]):
-                    warnings.append(f"{fp}:{i} — 疑似空 pass 占位")
-    # C7: 使用正斜杠统一路径匹配，兼容 Windows 反斜杠
-    if fp.replace("\\", "/").startswith("tests/"):
+                    warnings.append(f"{fp}:{i} -- suspected empty pass")
+    if fp.replace("\\\\", "/").startswith("tests/"):
         if re.search(r"\\b(mock|Mock|MagicMock|patch|mocker)\\b", content):
             if "MOCK-REASON:" not in content:
-                errors.append(f"{fp} — Mock 未声明 # MOCK-REASON:")
+                errors.append(f"{fp} -- Mock missing # MOCK-REASON:")
+            if "MOCK-REAL-TEST:" not in content:
+                errors.append(f"{fp} -- Mock missing # MOCK-REAL-TEST:")
+            expire_ok = "MOCK-EXPIRE-WHEN:" in content or "permanent:" in content
+            if not expire_ok:
+                errors.append(f"{fp} -- Mock missing # MOCK-EXPIRE-WHEN:")
 
 if warnings:
-    print("pre-commit 警告:")
+    print("pre-commit warnings:")
     for w in warnings:
-        print(f"  ⚠ {w}")
+        print(f"  [WARN] {w}")
 
 if errors:
-    print("pre-commit 检查失败:")
+    print("pre-commit check failed:")
     for e in errors:
-        print(f"  ✗ {e}")
+        print(f"  [FAIL] {e}")
     sys.exit(1)
 '''
-    (git_hooks_dir / "pre-commit").write_text(pre_commit, encoding="utf-8")
 
-    # commit-msg: 格式校验（FIX-08: 支持多种模式）
-    commit_msg = '''\
-#!/bin/sh
-"exec" "$(command -v python3 || command -v python)" "$0" "$@"
-# --- 以下为 Python 代码 ---
-"""commit-msg hook: 根据 run-config.yaml 的 hooks.commit_message_pattern 配置校验格式"""
+    # ── commit-msg.py ─────────────────────────────────────────
+    commit_msg_py = '''\
+#!/usr/bin/env python3
+"""commit-msg hook: validate format per run-config.yaml hooks.commit_message_pattern."""
 import re, sys
 from pathlib import Path
 
@@ -162,42 +180,37 @@ msg = open(sys.argv[1], encoding="utf-8").read().strip()
 first_line = msg.split("\\n")[0]
 
 if pattern_mode == "flexible":
-    sys.exit(0)  # 完全自由格式
+    sys.exit(0)
 elif pattern_mode == "cr-suffix":
     if not re.search(r"\\(CR-\\d{3,}\\)", first_line):
-        print(f"commit message 缺少 CR 后缀: {first_line}")
-        print(f"要求: 自由格式 (CR-xxx)")
+        print(f"commit message missing CR suffix: {first_line}")
+        print(f"Required: free-form (CR-xxx)")
         sys.exit(1)
 elif pattern_mode == "custom" and custom_regex:
     if not re.match(custom_regex, first_line):
-        print(f"commit message 不符合自定义格式: {first_line}")
-        print(f"正则: {custom_regex}")
+        print(f"commit message does not match custom format: {first_line}")
+        print(f"Regex: {custom_regex}")
         sys.exit(1)
 else:  # default
-    pattern = r"^\\[.+\\]\\s+\\S+[：:].+\\(CR-\\d{3,}\\)$"
+    pattern = r"^\\[.+\\]\\s+\\S+[:\\uff1a].+\\(CR-\\d{3,}\\)$"
     if not re.match(pattern, first_line):
-        print(f"commit message 格式不符: {first_line}")
-        print(f"要求: [模块] 动作：描述 (CR-xxx)")
-        print(f"示例: [query] 优化：搜索缓存命中率提升 (CR-003)")
+        print(f"commit message format mismatch: {first_line}")
+        print(f"Required: [module] action: description (CR-xxx)")
+        print(f"Example: [query] optimize: search cache hit rate (CR-003)")
         sys.exit(1)
 '''
-    (git_hooks_dir / "commit-msg").write_text(commit_msg, encoding="utf-8")
 
-    # pre-push: 全量 L1 回归（工具链感知）
-    pre_push = '''\
-#!/bin/sh
-"exec" "$(command -v python3 || command -v python)" "$0" "$@"
-# --- 以下为 Python 代码 ---
-"""pre-push hook: 推送前运行全量 L1 测试（自动检测工具链）"""
+    # ── pre-push.py ───────────────────────────────────────────
+    pre_push_py = '''\
+#!/usr/bin/env python3
+"""pre-push hook: run full L1 tests before push (toolchain-aware)."""
 import shlex, subprocess, sys
 from pathlib import Path
 
 tests_dir = Path("tests")
 if not tests_dir.exists():
-    sys.exit(0)  # 无测试目录，跳过
+    sys.exit(0)
 
-# 逻辑与 fw_utils.detect_toolchain() 同步，修改时请同步更新
-# 检测工具链：优先读取 run-config.yaml，回退到锁文件检测
 test_cmd = None
 try:
     import yaml
@@ -220,18 +233,30 @@ if test_cmd is None:
 
 result = subprocess.run(test_cmd, capture_output=True, text=True)
 if result.returncode != 0:
-    print("pre-push 检查失败: 测试未通过")
+    print("pre-push check failed: tests did not pass")
     print(result.stdout[-500:] if len(result.stdout) > 500 else result.stdout)
     sys.exit(1)
 '''
-    (git_hooks_dir / "pre-push").write_text(pre_push, encoding="utf-8")
-    print(f"  生成: .git/hooks/pre-commit")
-    print(f"  生成: .git/hooks/commit-msg")
-    print(f"  生成: .git/hooks/pre-push")
 
-    # 设置 hooks 可执行权限（Unix/macOS）
+    # ── 写入文件 ──────────────────────────────────────────────
+    hooks = [
+        ("pre-commit", pre_commit_py),
+        ("commit-msg", commit_msg_py),
+        ("pre-push", pre_push_py),
+    ]
+
+    for hook_name, py_content in hooks:
+        # Shell 入口
+        shell_path = git_hooks_dir / hook_name
+        shell_path.write_text(_make_shell_entry(hook_name), encoding="utf-8")
+        # Python 脚本
+        py_path = git_hooks_dir / f"{hook_name}.py"
+        py_path.write_text(py_content, encoding="utf-8")
+        print(f"  生成: .git/hooks/{hook_name} + {hook_name}.py")
+
+    # 设置 hooks 可执行权限（Unix/macOS）— 仅 shell 入口需要
     if os.name != "nt":
-        for hook_name in ["pre-commit", "commit-msg", "pre-push"]:
+        for hook_name, _ in hooks:
             hook_path = git_hooks_dir / hook_name
             if hook_path.exists():
                 hook_path.chmod(hook_path.stat().st_mode | stat.S_IEXEC)
@@ -240,6 +265,7 @@ if result.returncode != 0:
 
 def init_project(project_dir: Path, requirement_doc: str, tech_stack: str) -> None:
     """初始化新项目"""
+    _toolchain = None
     framework_dir = get_framework_dir()
     project_dir = project_dir.resolve()
     now = datetime.now(timezone.utc)
@@ -263,6 +289,7 @@ def init_project(project_dir: Path, requirement_doc: str, tech_stack: str) -> No
         ".claude/dev-state/iter-0/tasks",
         ".claude/dev-state/iter-0/verify",
         ".claude/dev-state/iter-0/checkpoints",
+        ".claude/agents",
         "scripts/verify",
         "tests/unit",
         "tests/integration",
@@ -274,7 +301,7 @@ def init_project(project_dir: Path, requirement_doc: str, tech_stack: str) -> No
         (project_dir / d).mkdir(parents=True, exist_ok=True)
         print(f"  创建目录: {d}")
 
-    # 2. 生成 session-state.json（v3.0: agents/ 目录已废弃，Agent 协议已合并到 CLAUDE.md）
+    # 2. 生成 session-state.json（v4.0: agents/ 目录存放子代理定义文件）
     session_state = {
         "session_id": f"ses-{now.strftime('%Y%m%d-%H%M%S')}",
         "started_at": now.isoformat(),
@@ -374,6 +401,7 @@ def init_project(project_dir: Path, requirement_doc: str, tech_stack: str) -> No
             "l1_skipped": 0,
             "l2_passed": 0,
             "l2_failed": 0,
+            "l2_skipped": 0,
         },
         "lint_clean": True,
         "pre_existing_failures": [],
@@ -432,13 +460,13 @@ def init_project(project_dir: Path, requirement_doc: str, tech_stack: str) -> No
     checklist_path = project_dir / ".claude" / "dev-state" / "iter-0" / "feature-checklist.json"
     if not checklist_path.exists():
         checklist_content = {
-            "description": "Feature checklist for init-mode (iter-0). Analyst fills in Phase 2, Reviewer updates in Phase 4.",
+            "description": "Feature checklist for init-mode (iter-0). analyst 子代理 fills in Phase 2, reviewer 子代理 updates in Phase 4.",
             "features": []
         }
         checklist_path.write_text(
             json.dumps(checklist_content, indent=2, ensure_ascii=False), encoding="utf-8"
         )
-        print(f"  生成: iter-0/feature-checklist.json（空白，由 Analyst 在 Phase 2 填充）")
+        print(f"  生成: iter-0/feature-checklist.json（空白，由 analyst 子代理在 Phase 2 填充）")
 
     # 7. 生成迭代初始文件
     empty_files = {
@@ -463,7 +491,7 @@ def init_project(project_dir: Path, requirement_doc: str, tech_stack: str) -> No
             if fw_tmpl.exists():
                 fw_content = fw_tmpl.read_text(encoding="utf-8")
                 fw_content = fw_content.replace("{{FRAMEWORK_PATH}}", str(framework_dir))
-                fw_content = fw_content.replace("{{PROJECT_GOTCHAS}}", "<!-- 开发过程中发现的坑点和最佳实践，由 Developer Agent 自动维护 -->")
+                fw_content = fw_content.replace("{{PROJECT_GOTCHAS}}", "<!-- 开发过程中发现的坑点和最佳实践，由 developer 子代理自动维护 -->")
                 # 工具链命令替换
                 run_config_path = project_dir / ".claude" / "dev-state" / "run-config.yaml"
                 _config = load_run_config(project_dir) if run_config_path.exists() else {}
@@ -471,7 +499,7 @@ def init_project(project_dir: Path, requirement_doc: str, tech_stack: str) -> No
                 fw_content = fw_content.replace("{{TEST_RUNNER}}", _toolchain["test_runner"])
                 fw_content = fw_content.replace("{{PYTHON}}", _toolchain["python"])
                 dot_claude.write_text(fw_content, encoding="utf-8")
-                print(f"  生成: .claude/CLAUDE.md (v3.0 合并版运行时手册，追加模式)")
+                print(f"  生成: .claude/CLAUDE.md (v4.0 子代理架构版运行时手册，追加模式)")
             else:
                 # 回退：简化版
                 dot_claude.write_text(
@@ -480,7 +508,7 @@ def init_project(project_dir: Path, requirement_doc: str, tech_stack: str) -> No
                     f"## 框架工作流\n"
                     f"- 框架路径: {framework_dir}\n"
                     f"- 质量门控：8 层 Gate（Gate 0-7）\n"
-                    f"- Agent 角色：Leader / Analyst / Developer / Verifier / Reviewer\n",
+                    f"- 子代理角色：leader / analyst / developer / verifier / reviewer\n",
                     encoding="utf-8",
                 )
                 print(f"  生成: .claude/CLAUDE.md (简化版，追加模式)")
@@ -530,7 +558,7 @@ def init_project(project_dir: Path, requirement_doc: str, tech_stack: str) -> No
         if fw_tmpl.exists():
             fw_content = fw_tmpl.read_text(encoding="utf-8")
             fw_content = fw_content.replace("{{FRAMEWORK_PATH}}", str(framework_dir))
-            fw_content = fw_content.replace("{{PROJECT_GOTCHAS}}", "<!-- 开发过程中发现的坑点和最佳实践，由 Developer Agent 自动维护 -->")
+            fw_content = fw_content.replace("{{PROJECT_GOTCHAS}}", "<!-- 开发过程中发现的坑点和最佳实践，由 developer 子代理自动维护 -->")
             # 工具链命令替换
             run_config_path = project_dir / ".claude" / "dev-state" / "run-config.yaml"
             _config = load_run_config(project_dir) if run_config_path.exists() else {}
@@ -549,12 +577,41 @@ def init_project(project_dir: Path, requirement_doc: str, tech_stack: str) -> No
                 f"需求文档: {requirement_doc}\n",
                 encoding="utf-8",
             )
-        print(f"  生成: .claude/CLAUDE.md (v3.0 合并版，需手动定制项目配置占位符)")
+        print(f"  生成: .claude/CLAUDE.md (v4.0 子代理架构版，需手动定制项目配置占位符)")
 
-    # 9. v3.0: 写入版本标记
+    # 9. v4.0: 写入版本标记
     version_path = project_dir / ".claude" / "dev-state" / ".framework-version"
-    version_path.write_text("3.0\n", encoding="utf-8")
-    print(f"  生成: .framework-version = 3.0")
+    version_path.write_text("4.0\n", encoding="utf-8")
+    print(f"  生成: .framework-version = 4.0")
+
+    # 9.5 v4.0: 注入子代理定义文件到 .claude/agents/
+    _agent_files = [
+        "analyst.md",
+        "developer.md",
+        "verifier.md",
+        "reviewer.md",
+        "verify-reviewer.md",
+    ]
+    # 确保 _toolchain 可用（CLAUDE.md 生成阶段可能已检测过，但此处保底重新检测）
+    if _toolchain is None:
+        _run_cfg_path = project_dir / ".claude" / "dev-state" / "run-config.yaml"
+        _cfg = load_run_config(project_dir) if _run_cfg_path.exists() else {}
+        _toolchain = detect_toolchain(project_dir, _cfg)
+    _shared_rules_path = framework_dir / "templates" / "agents" / "_shared-rules.md"
+    _shared_rules = "\n" + _shared_rules_path.read_text(encoding="utf-8") if _shared_rules_path.exists() else ""
+    for _agent_fn in _agent_files:
+        _agent_src = framework_dir / "templates" / "agents" / _agent_fn
+        if not _agent_src.exists():
+            print(f"  [WARN] 子代理模板不存在，跳过: templates/agents/{_agent_fn}")
+            continue
+        _agent_content = _agent_src.read_text(encoding="utf-8")
+        _agent_content = _agent_content.replace("{{FRAMEWORK_PATH}}", str(framework_dir))
+        _agent_content = _agent_content.replace("{{TEST_RUNNER}}", _toolchain["test_runner"])
+        _agent_content = _agent_content.replace("{{PYTHON}}", _toolchain["python"])
+        _agent_content += _shared_rules
+        _agent_dst = project_dir / ".claude" / "agents" / _agent_fn
+        _agent_dst.write_text(_agent_content, encoding="utf-8")
+        print(f"  生成: .claude/agents/{_agent_fn}")
 
     # 10. 生成 ARCHITECTURE.md
     arch_path = project_dir / "ARCHITECTURE.md"
@@ -578,8 +635,8 @@ def init_project(project_dir: Path, requirement_doc: str, tech_stack: str) -> No
         )
         print(f"  生成: config/default.yaml")
 
-    # 12. 生成 Git hooks
-    _setup_git_hooks(project_dir)
+    # 12. 生成 Git hooks（传入工具链以写入 Python 路径）
+    _setup_git_hooks(project_dir, toolchain=_toolchain)
 
     # 13. 追加框架文件 .gitignore 规则（FIX-20）
     append_gitignore(project_dir)

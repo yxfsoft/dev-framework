@@ -28,7 +28,12 @@ acceptance_criteria:
       status: FAIL
 
 # 状态（简化状态机: pending → in_progress → ready_for_review → PASS）
-# Leader 执行简化审查（仅检查基线回归 + 变更范围合理）
+# Hotfix 特殊流程：
+#   - 跳过 Analyst 分析和 verify 脚本
+#   - 跳过 Verifier 独立验收（Phase 3.5），由 Leader 执行简化审查
+#   - phase-gate.py 在 Phase 3→3.5 和 3.5→4 时跳过 hotfix CR 的状态检查
+#   - Phase 4→5 仍检查 status=PASS 和 done_evidence 非空
+#   - 必须有 L1 基线回归通过记录在 done_evidence 中
 # （此为简化流程，完整状态定义见 schemas/task-schema.yaml）
 status: pending
 current_step: null

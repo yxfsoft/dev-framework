@@ -1,6 +1,6 @@
 # Dev-Framework 使用指导手册
 
-> 版本: v3.0 | 更新日期: 2026-02-21
+> 版本: v4.0 | 更新日期: 2026-02-22
 
 > **路径约定**：本文档中的 `dev-framework/scripts/` 指框架仓库的 scripts 目录。
 > 如果框架不在项目子目录下，请替换为框架的实际安装路径（如 `D:/tools/dev-framework/scripts/`）。
@@ -81,7 +81,8 @@ python dev-framework/scripts/init-project.py \
 │   │       ├── verify/
 │   │       ├── checkpoints/
 │   │       └── decisions.md
-│   └── CLAUDE.md          ← v3.0 合并版运行时手册 + 项目配置（⚠️ 有占位符需手动填写）
+│   ├── agents/            ← v4.0 子代理协议文件（analyst/developer/verifier/reviewer）
+│   └── CLAUDE.md          ← Leader 主模板 + 项目配置（⚠️ 有占位符需手动填写）
 ├── ARCHITECTURE.md
 ├── config/default.yaml
 ├── tests/unit/
@@ -111,8 +112,8 @@ python dev-framework/scripts/init-project.py \
 
 > 请以 init-mode 启动开发流程。需求文档在 docs/requirements.md。
 
-> **v3.0 说明**：`.claude/CLAUDE.md` 已包含完整的框架运行时手册（含所有 Agent 协议），
-> 作为系统提示自动加载，无需手动指定 agent 文件路径。
+> **v4.0 说明**：`.claude/CLAUDE.md` 包含 Leader 主模板，各角色协议位于 `.claude/agents/*.md` 子代理文件中。
+> Leader spawn 子代理时自动加载对应 agent 文件，无需手动指定路径。
 
 Claude 会按以下流程自动执行：
 
@@ -401,11 +402,51 @@ Analyst 会花更多时间在 Phase 1 读代码理解现状，然后再做需求
 
 ---
 
-## 六、Interactive 模式 vs Auto Loop 模式
+## 六、子代理架构（v4.0）
 
-> **v3.0 说明**：Agent 协议和质量门控规则已合并到 `.claude/CLAUDE.md` 中，
-> 作为系统提示自动加载。无论 Interactive 还是 Auto Loop 模式，
-> 都**不需要**手动加载 Agent 协议文件。
+v4.0 将 v3.0 合并在 CLAUDE.md 中的 5 个 Agent 协议拆分为独立的子代理文件，实现系统提示隔离和工具级权限控制。
+
+### 与 v3.0 的区别
+
+| 对比项 | v3.0 | v4.0 |
+|--------|------|------|
+| 协议位置 | 全部合并在 CLAUDE.md（~48K tokens） | Leader 主模板 ~20K + 各子代理 ~5-10K |
+| 权限控制 | 协议文字约束（"Verifier 不能修改代码"） | tools 字段工具级强制（无 Write/Edit） |
+| 上下文开销 | N 个并行子代理 = N 份 48K | 每个子代理仅加载自身协议 |
+
+### 5 个子代理文件
+
+| 文件 | 角色 | tools 权限 |
+|------|------|-----------|
+| `.claude/agents/analyst.md` | Analyst | Read/Write/Edit/Bash |
+| `.claude/agents/developer.md` | Developer | Read/Write/Edit/Bash |
+| `.claude/agents/verifier.md` | Verifier | Read/Bash（无 Write/Edit） |
+| `.claude/agents/reviewer.md` | Reviewer | Read/Bash（无 Write/Edit） |
+| `.claude/CLAUDE.md` | Leader（主模板） | 全部 |
+
+### Verifier/Reviewer 如何写入结果
+
+Verifier/Reviewer 的 tools 中没有 Write/Edit，但需要写入 done_evidence、review_result 等字段。
+通过 `scripts/update-task-field.py` 白名单脚本实现：
+
+```bash
+python dev-framework/scripts/update-task-field.py \
+    --project-dir "<项目路径>" \
+    --iteration-id "iter-N" \
+    --task-id "CR-001" \
+    --field "done_evidence" \
+    --value "$(cat evidence.json)"
+```
+
+脚本内置字段白名单（done_evidence、status、review_result、notes、current_step），禁止写入 design、acceptance_criteria 等核心字段。详见 ADR-014、ADR-015。
+
+---
+
+## 七、Interactive 模式 vs Auto Loop 模式
+
+> **v4.0 说明**：Leader 协议和质量门控规则在 `.claude/CLAUDE.md` 中，各角色子代理协议在 `.claude/agents/*.md` 中。
+> 无论 Interactive 还是 Auto Loop 模式，都**不需要**手动加载 Agent 协议文件，
+> Leader spawn 子代理时自动加载对应文件。
 
 ### Interactive 模式（默认）
 
@@ -475,7 +516,7 @@ mode: "auto-loop"  # 改这一行就行
 
 ---
 
-## 七、需求输入深度对比
+## 八、需求输入深度对比
 
 ### 一句话需求的完整旅程
 
@@ -601,7 +642,7 @@ Step 5: 你审批（快速确认即可）
 
 ---
 
-## 八、开发过程中的常用命令
+## 九、开发过程中的常用命令
 
 ### 查看当前状态
 
@@ -679,7 +720,7 @@ python dev-framework/scripts/check-quality-gate.py \
 
 ### phase-gate.py
 
-Phase 门控检查脚本，在 Phase 转换前验证前置条件是否满足。
+Phase 门控检查脚本，在 Phase 转换前检查前置条件是否满足。
 
 **用法**:
 
@@ -719,7 +760,7 @@ python dev-framework/scripts/generate-report.py \
     --iteration-id "iter-1"
 ```
 
-### AutoLoop 运行（v3.0 新增）
+### AutoLoop 运行
 
 ```bash
 python dev-framework/scripts/auto-loop-runner.py \
@@ -743,11 +784,11 @@ python dev-framework/scripts/upgrade-project.py \
     --project-dir "<项目路径>"
 ```
 
-详见[十、从 v2.6 升级到 v3.0](#十从-v26-升级到-v30)。
+详见[十一、版本升级指南](#十一版本升级指南)。
 
 ---
 
-## 九、完整场景走读：从接手到交付
+## 十、完整场景走读：从接手到交付
 
 以下是一个接手项目 + 两轮迭代的完整时间线。
 
@@ -841,7 +882,7 @@ python dev-framework/scripts/run-baseline.py \
     --iteration-id "iter-2"
 ```
 
-使用 `auto-loop-runner.py` 启动 AutoLoop 外围循环（v3.0 推荐方式）：
+使用 `auto-loop-runner.py` 启动 AutoLoop 外围循环（推荐方式）：
 
 ```bash
 python dev-framework/scripts/auto-loop-runner.py \
@@ -855,7 +896,7 @@ python dev-framework/scripts/auto-loop-runner.py \
 请按 Auto Loop 模式执行 iter-2 的完整开发流程。
 ```
 
-> v3.0 推荐使用 `auto-loop-runner.py`，它会在 Claude 会话因上下文耗尽结束时自动重启，
+> 推荐使用 `auto-loop-runner.py`，它会在 Claude 会话因上下文耗尽结束时自动重启，
 > 并监控进度和安全阀。
 
 Claude 全自动跑完，你事后看报告：
@@ -876,18 +917,26 @@ L1: 267 passed (+29 new)
 
 ---
 
-## 十、从 v2.6 升级到 v3.0
+## 十一、版本升级指南
 
-### v3.0 主要变化
+### v4.0 主要变化（相对 v3.0）
 
 | 变化 | 说明 |
 |------|------|
-| **合并 CLAUDE.md** | 5 个 Agent 协议 + 质量门控规则合并到 `.claude/CLAUDE.md`，作为系统提示永不压缩 |
+| **子代理架构** | 5 个 Agent 协议从合并的 CLAUDE.md 拆分为独立 `.claude/agents/*.md` 子代理文件（ADR-014） |
+| **工具级权限控制** | Verifier/Reviewer 通过 tools 字段禁用 Write/Edit，实现工具级强制隔离 |
+| **白名单写入脚本** | 新增 `scripts/update-task-field.py`，Verifier/Reviewer 通过此脚本写入限定字段（ADR-015） |
+| **Leader 主模板精简** | 从 ~48K tokens 降至 ~20K tokens，各子代理 ~5-10K tokens |
+
+### v3.0 主要变化（相对 v2.6）
+
+| 变化 | 说明 |
+|------|------|
+| **合并 CLAUDE.md** | 5 个 Agent 协议 + 质量门控规则合并到 `.claude/CLAUDE.md`（v4.0 已反转，参见 ADR-014） |
 | **滚动上下文快照** | 新增 `context-snapshot.md`，每个显著动作后更新，支持跨会话快速恢复 |
 | **AutoLoop 外围脚本** | 新增 `auto-loop-runner.py`，自动重启 Claude 会话直到任务完成 |
 | **强制启动协议** | 每个新会话必须先读取配置和快照，不可跳过 |
 | **snapshot 配置** | `run-config.yaml` 新增 `snapshot` 配置块 |
-| **删除独立文件** | `agents/`（5 个 Agent 协议）和 `workflows/`（4 个工作流）目录已删除，内容合并到 CLAUDE.md |
 
 ### 自动处理的迁移项（由升级脚本完成）
 
@@ -898,6 +947,16 @@ L1: 267 passed (+29 new)
 - 在 `run-config.yaml` 中添加 `snapshot` 配置块
 - 在 `.gitignore` 中添加 `**/context-snapshot.md`
 - 写入 `.framework-version = "3.0"`
+
+### 升级前检查清单
+
+在执行升级之前，请确认以下条件：
+
+1. **当前版本确认**：运行 `cat .claude/dev-state/run-config.yaml | grep framework_version` 查看当前版本
+2. **Python 版本**：需要 Python 3.8+，运行 `python3 --version` 确认
+3. **PyYAML 依赖**：确认已安装 PyYAML，运行 `python3 -c "import yaml; print(yaml.__version__)"` 检查
+4. **Git 状态干净**：确保工作目录无未提交更改，运行 `git status` 检查
+5. **备份建议**：建议在升级前创建 Git 分支或标签作为回退点
 
 ### 升级步骤
 
@@ -934,11 +993,11 @@ python <框架路径>/scripts/upgrade-project.py \
 ```bash
 # 1. 确认版本标记
 cat .claude/dev-state/.framework-version
-# 应输出: 3.0
+# 应输出: 4.0
 
-# 2. 确认 CLAUDE.md 包含 agent 协议
-grep "Leader Agent 协议" .claude/CLAUDE.md
-# 应有输出
+# 2. 确认子代理文件存在
+ls .claude/agents/
+# 应有: analyst.md developer.md verifier.md reviewer.md
 
 # 3. 确认 context-snapshot.md 存在
 ls .claude/dev-state/context-snapshot.md
@@ -983,11 +1042,11 @@ python <框架路径>/scripts/auto-loop-runner.py \
 脚本会在 Claude 会话结束后自动重启，并监控进展和安全阀。
 
 **Q: agents/ 目录还有用吗？**
-A: v3.0 已将所有 Agent 协议合并到 `.claude/CLAUDE.md`，独立的 `agents/` 和 `workflows/` 目录已删除。所有协议和工作流规则统一在 `CLAUDE-framework.md.tmpl` 中维护。
+A: v4.0 重新启用了 `.claude/agents/` 目录，各角色协议（analyst/developer/verifier/reviewer）作为独立子代理文件存放于此。Leader 主模板仍在 `.claude/CLAUDE.md` 中。这是对 v3.0 合并方案的反转（参见 ADR-014）。
 
 ---
 
-## 十一、FAQ
+## 十二、FAQ
 
 **Q: iteration-id 怎么取名？**
 统一使用 `iter-N` 格式（N 为数字，从 0 开始），如 `iter-0`（首次开发）、`iter-1`、`iter-2`。`init-project.py` 自动创建 `iter-0` 目录。同一项目内不可重复。
@@ -1011,6 +1070,20 @@ A: v3.0 已将所有 Agent 协议合并到 `.claude/CLAUDE.md`，独立的 `agen
 python dev-framework/scripts/init-project.py --help
 python dev-framework/scripts/check-quality-gate.py --help
 ```
+
+### 故障排除
+
+**Q: Verifier verify 脚本失败了怎么办？**
+A: 检查 verify 脚本是否仍有 `raise NotImplementedError` 占位符（Analyst 需补全）。确认脚本依赖已安装。查看错误日志定位具体失败的验收条件。
+
+**Q: 基线退化了怎么办？**
+A: 单任务 CR 级别的退化由 Verifier 标记 rework，Developer 需修复后重新提交。全局级别的退化会触发安全阀停止循环，需排查是哪个 CR 引入了退化，逐一修复。
+
+**Q: Auto Loop 无故停止了怎么办？**
+A: 检查 auto-loop-runner.py 的日志输出。常见原因：安全阀触发（基线退化/迭代次数超限）、phase-gate 校验失败、任务 YAML 格式错误。
+
+**Q: Reviewer 打回了多次还未通过，怎么办？**
+A: 检查 Reviewer 的反馈是否有重复模式。如果是同一问题反复出现，可能是 Developer 未正确理解要求，建议在 CR 的 notes 中详细记录修复方案。如果确认是 Reviewer 标准过严，可在 decisions.md 中记录放行决策。
 
 ---
 

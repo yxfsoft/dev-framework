@@ -20,7 +20,7 @@ from pathlib import Path
 
 # 添加 scripts 目录到 path 以导入 fw_utils
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fw_utils import detect_toolchain, load_run_config, build_test_cmd, build_lint_cmd, parse_pytest_output
+from fw_utils import validate_safe_id, detect_toolchain, load_run_config, build_test_cmd, build_lint_cmd, parse_pytest_output
 
 
 def run_baseline(project_dir: Path, iteration_id: str) -> None:
@@ -46,6 +46,7 @@ def run_baseline(project_dir: Path, iteration_id: str) -> None:
         capture_output=True,
         text=True,
         cwd=project_dir,
+        timeout=30,
         encoding="utf-8",
         errors="replace",
     )
@@ -54,26 +55,35 @@ def run_baseline(project_dir: Path, iteration_id: str) -> None:
         parts = git_result.stdout.strip().split(" ", 1)
         git_commit = parts[0] if parts else ""
     elif git_result.returncode != 0:
-        print(f"  WARN  git log 命令失败（returncode={git_result.returncode}），跳过 git commit 记录")
+        print(f"  [WARN]  git log 命令失败（returncode={git_result.returncode}），跳过 git commit 记录")
 
     # 运行 L1 单元测试（M11: 从 config 读取 test_dir）
     print("[1/3] 运行 L1 单元测试...")
-    test_dir_rel = config.get("toolchain", {}).get("test_dir", config.get("test_dir", "tests/unit/"))
+    test_dir_rel = (
+        config.get("toolchain", {}).get("test_dir")
+        or config.get("test_dir")
+        or "tests/unit/"
+    )
     unit_dir = project_dir / test_dir_rel
     if unit_dir.exists():
         l1_cmd = build_test_cmd(toolchain, test_dir_rel, ["-q", "--tb=no"])
-        l1_result = subprocess.run(
-            l1_cmd,
-            capture_output=True,
-            text=True,
-            cwd=project_dir,
-            timeout=600,
-            encoding="utf-8",
-            errors="replace",
-        )
-        l1_output = l1_result.stdout + l1_result.stderr
-        l1_parsed = parse_pytest_output(l1_output)
-        print(f"  L1: {l1_parsed['passed']} passed, {l1_parsed['failed']} failed, {l1_parsed['skipped']} skipped")
+        try:
+            l1_result = subprocess.run(
+                l1_cmd,
+                capture_output=True,
+                text=True,
+                cwd=project_dir,
+                timeout=600,
+                encoding="utf-8",
+                errors="replace",
+            )
+            l1_output = l1_result.stdout + l1_result.stderr
+            l1_parsed = parse_pytest_output(l1_output)
+            print(f"  L1: {l1_parsed['passed']} passed, {l1_parsed['failed']} failed, {l1_parsed['skipped']} skipped")
+        except subprocess.TimeoutExpired:
+            l1_parsed = {"passed": 0, "failed": 0, "skipped": 0}
+            l1_output = ""
+            print(f"  L1: 测试执行超时（>600s）")
     else:
         l1_parsed = {"passed": 0, "failed": 0, "skipped": 0}
         l1_output = ""
@@ -85,18 +95,22 @@ def run_baseline(project_dir: Path, iteration_id: str) -> None:
     integration_dir = project_dir / "tests" / "integration"
     if integration_dir.exists():
         l2_cmd = build_test_cmd(toolchain, "tests/integration/", ["-q", "--tb=no"])
-        l2_result = subprocess.run(
-            l2_cmd,
-            capture_output=True,
-            text=True,
-            cwd=project_dir,
-            timeout=600,
-            encoding="utf-8",
-            errors="replace",
-        )
-        l2_output = l2_result.stdout + l2_result.stderr
-        l2_parsed = parse_pytest_output(l2_output)
-        print(f"  L2: {l2_parsed['passed']} passed, {l2_parsed['failed']} failed")
+        try:
+            l2_result = subprocess.run(
+                l2_cmd,
+                capture_output=True,
+                text=True,
+                cwd=project_dir,
+                timeout=600,
+                encoding="utf-8",
+                errors="replace",
+            )
+            l2_output = l2_result.stdout + l2_result.stderr
+            l2_parsed = parse_pytest_output(l2_output)
+            print(f"  L2: {l2_parsed['passed']} passed, {l2_parsed['failed']} failed")
+        except subprocess.TimeoutExpired:
+            l2_parsed = {"passed": 0, "failed": 0, "skipped": 0}
+            print(f"  L2: 集成测试执行超时（>600s）")
     else:
         print("  L2: 跳过（无 tests/integration/ 目录）")
 
@@ -179,9 +193,10 @@ def main() -> None:
     parser.add_argument("--project-dir", required=True, help="项目目录路径")
     parser.add_argument("--iteration-id", required=True, help="迭代 ID")
     args = parser.parse_args()
+    validate_safe_id(args.iteration_id, "iteration-id")
     project_dir = Path(args.project_dir).resolve()
     if not project_dir.is_dir():
-        print(f"ERROR: --project-dir 目录不存在: {project_dir}")
+        print(f"[ERROR] --project-dir 目录不存在: {project_dir}")
         sys.exit(1)
     run_baseline(project_dir, args.iteration_id)
 

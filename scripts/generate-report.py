@@ -19,15 +19,12 @@ from pathlib import Path
 
 # 添加 scripts 目录到 path 以导入 fw_utils
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fw_utils import detect_toolchain, load_run_config, build_test_cmd
-
-# git 空树哈希，用作无提交时的 diff 基准
-_GIT_EMPTY_TREE = "4b825dc642cb6eb9a060e54bf899d15f7acb7299"
+from fw_utils import GIT_EMPTY_TREE, validate_safe_id, detect_toolchain, load_run_config, build_test_cmd
 
 try:
     import yaml
 except ImportError:
-    print("ERROR: PyYAML 未安装。运行: pip install PyYAML>=6.0")
+    print("[ERROR] PyYAML 未安装。运行: pip install PyYAML>=6.0")
     sys.exit(1)
 
 
@@ -95,7 +92,7 @@ def generate_report(project_dir: Path, iteration_id: str) -> None:
                 git_diff_ref = f"HEAD~{safe_n}"
             else:
                 # 只有一个或零个提交，使用空树作为对比基准
-                git_diff_ref = _GIT_EMPTY_TREE
+                git_diff_ref = GIT_EMPTY_TREE
             git_stat = subprocess.run(
                 ["git", "diff", "--stat", git_diff_ref],
                 capture_output=True, text=True, cwd=project_dir,
@@ -117,11 +114,24 @@ def generate_report(project_dir: Path, iteration_id: str) -> None:
         config = load_run_config(project_dir)
         toolchain = detect_toolchain(project_dir, config)
         test_cmd = build_test_cmd(toolchain, "tests/", ["-q", "--tb=no"])
-        test_result = subprocess.run(
-            test_cmd,
-            capture_output=True, text=True, cwd=project_dir, timeout=600,
-            encoding="utf-8", errors="replace",
-        )
+        try:
+            test_result = subprocess.run(
+                test_cmd,
+                capture_output=True, text=True, cwd=project_dir, timeout=600,
+                encoding="utf-8", errors="replace",
+            )
+        except FileNotFoundError:
+            print("  [WARN] 测试命令未找到，跳过测试结果")
+            class _NoTestResult:
+                stdout = "(测试命令未找到)"
+                stderr = ""
+            test_result = _NoTestResult()
+        except subprocess.TimeoutExpired:
+            print("  [WARN] 测试执行超时（>600s），跳过测试结果")
+            class _NoTestResult:
+                stdout = "(测试执行超时)"
+                stderr = ""
+            test_result = _NoTestResult()
     else:
         class _NoTestResult:
             stdout = "无测试目录 (tests/ 不存在)"
@@ -229,9 +239,10 @@ def main() -> None:
     parser.add_argument("--project-dir", required=True, help="项目目录路径")
     parser.add_argument("--iteration-id", required=True, help="迭代 ID")
     args = parser.parse_args()
+    validate_safe_id(args.iteration_id, "iteration-id")
     project_dir = Path(args.project_dir).resolve()
     if not project_dir.is_dir():
-        print(f"ERROR: --project-dir 目录不存在: {project_dir}")
+        print(f"[ERROR] --project-dir 目录不存在: {project_dir}")
         sys.exit(1)
     generate_report(project_dir, args.iteration_id)
 

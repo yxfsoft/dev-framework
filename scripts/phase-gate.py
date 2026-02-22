@@ -23,12 +23,14 @@ from __future__ import annotations  # 支持 Python 3.7+ 新式类型注解
 
 import argparse
 import json
+import re
+import subprocess
 import sys
 from pathlib import Path
 
 # 添加 scripts 目录到 path 以导入 fw_utils
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fw_utils import validate_manifest, PHASE_NUMS
+from fw_utils import validate_manifest, validate_safe_id, PHASE_NUMS
 
 try:
     import yaml
@@ -63,7 +65,7 @@ def check_phase_2_to_3(iter_dir: Path) -> list[str]:
     # 检查 1：tasks 目录非空
     task_files = list(tasks_dir.glob("*.yaml")) if tasks_dir.exists() else []
     if not task_files:
-        errors.append("tasks/ 目录为空，Analyst 尚未完成任务拆分")
+        errors.append("tasks/ 目录为空，analyst 子代理尚未完成任务拆分")
 
     # 检查 2：每个 task 必须有对应的 verify 脚本
     for tf in task_files:
@@ -113,11 +115,14 @@ def check_phase_2_to_3(iter_dir: Path) -> list[str]:
         except (json.JSONDecodeError, OSError) as e:
             errors.append(f"manifest.json 读取/解析失败: {e}")
             return errors
-        # C2: 加载后校验 manifest 完整性（仅 WARN，不阻断）
+        # C2: 加载后校验 manifest 完整性
         m_errors = validate_manifest(data)
         if m_errors:
             for e in m_errors:
-                print(f"  [WARN] manifest 校验: {e}")
+                if re.search(r"(?i)(required|missing)", e):
+                    errors.append(f"manifest 校验: {e}")
+                else:
+                    print(f"  [WARN] manifest 校验: {e}")
         if data.get("phase") != "phase_2":
             errors.append(
                 f"manifest.json phase={data.get('phase')}，预期 phase_2。"
@@ -306,6 +311,41 @@ def check_phase_5_complete(iter_dir: Path) -> list[str]:
     return errors
 
 
+def _refresh_baseline(project_dir: Path, iteration_id: str) -> None:
+    """Phase 5 完成后自动刷新 baseline.json。
+
+    通过 subprocess 调用 run-baseline.py，失败仅 WARN 不阻断。
+    """
+    scripts_dir = Path(__file__).resolve().parent
+    baseline_script = scripts_dir / "run-baseline.py"
+    if not baseline_script.exists():
+        print(f"  [WARN] run-baseline.py not found at {baseline_script}, skip baseline refresh")
+        return
+
+    print(f"  [INFO] Refreshing baseline.json for next iteration...")
+    try:
+        result = subprocess.run(
+            [sys.executable, str(baseline_script),
+             "--project-dir", str(project_dir),
+             "--iteration-id", iteration_id],
+            capture_output=True,
+            text=True,
+            timeout=600,
+            encoding="utf-8",
+            errors="replace",
+        )
+        if result.returncode == 0:
+            print(f"  [INFO] baseline.json refreshed successfully")
+        else:
+            print(f"  [WARN] baseline refresh exited with code {result.returncode}")
+            if result.stderr:
+                print(f"         {result.stderr[:200]}")
+    except subprocess.TimeoutExpired:
+        print(f"  [WARN] baseline refresh timed out (>600s), skipped")
+    except Exception as e:
+        print(f"  [WARN] baseline refresh failed: {e}")
+
+
 def _update_manifest_phase(iter_dir: Path, new_phase: str) -> None:
     """更新 manifest.json 中的 phase 字段，并同步更新 session-state.json。"""
     manifest = iter_dir / "manifest.json"
@@ -315,11 +355,14 @@ def _update_manifest_phase(iter_dir: Path, new_phase: str) -> None:
         except (json.JSONDecodeError, OSError) as e:
             print(f"  [ERROR] manifest.json 读取/解析失败: {e}")
             return
-        # C2: 加载后校验 manifest 完整性（仅 WARN，不阻断）
+        # C2: 加载后校验 manifest 完整性
         m_errors = validate_manifest(data)
         if m_errors:
             for e in m_errors:
-                print(f"  [WARN] manifest 校验: {e}")
+                if re.search(r"(?i)(required|missing)", e):
+                    print(f"  [ERROR] manifest 校验: {e}")
+                else:
+                    print(f"  [WARN] manifest 校验: {e}")
         data["phase"] = new_phase
         manifest.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
 
@@ -359,10 +402,11 @@ def main() -> int:
         help="检查 Phase 5 是否满足所有交付条件（独立于 Phase 转换使用）"
     )
     args = parser.parse_args()
+    validate_safe_id(args.iteration_id, "iteration-id")
 
     project_dir = Path(args.project_dir).resolve()
     if not project_dir.is_dir():
-        print(f"ERROR: --project-dir 目录不存在: {project_dir}")
+        print(f"[ERROR] --project-dir 目录不存在: {project_dir}")
         return 1
     iter_dir = project_dir / ".claude" / "dev-state" / args.iteration_id
 
@@ -376,10 +420,12 @@ def main() -> int:
             return 1
         else:
             print("[PASS] Phase 5 完成检查通过：所有 CR 为 PASS，review 通过，checkpoints 和 verify 非空")
+            # 自动刷新 baseline.json 为下一轮迭代服务
+            _refresh_baseline(project_dir, args.iteration_id)
             return 0
 
     if not args.from_phase or not args.to_phase:
-        print("ERROR: Phase 转换模式需要 --from 和 --to 参数")
+        print("[ERROR] Phase 转换模式需要 --from 和 --to 参数")
         return 1
 
     key = (args.from_phase, args.to_phase)

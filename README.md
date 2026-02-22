@@ -1,11 +1,11 @@
 # Dev-Framework — 多代理协作开发框架
 
-> 版本: v3.0 | 更新日期: 2026-02-21
+> 版本: v4.0 | 更新日期: 2026-02-22
 
 统一的多代理协作开发框架，覆盖首次开发（init-mode）和多轮迭代开发（iterate-mode）。
 
 基于五角色制衡模型（Leader / Analyst / Developer / Verifier / Reviewer），
-通过 10 层质量门控（Gate 0-7 + Gate 2.5/3.5）和磁盘状态持久化，确保开发质量和上下文连续性。
+通过原生子代理隔离 + 工具级权限控制、10 层质量门控（Gate 0-7 + Gate 2.5/3.5）和磁盘状态持久化，确保开发质量和上下文连续性。
 
 ---
 
@@ -33,9 +33,9 @@
 pip install -r dev-framework/requirements.txt
 ```
 
-### 已有项目升级（v2.6 → v3.0）
+### 已有项目升级
 
-如果你的项目已使用 v2.6 版本的框架，运行升级脚本迁移到 v3.0：
+如果你的项目已使用旧版本的框架，运行升级脚本迁移到 v4.0：
 
 ```bash
 # 先预览变更
@@ -45,9 +45,9 @@ python dev-framework/scripts/upgrade-project.py --project-dir "<项目路径>" -
 python dev-framework/scripts/upgrade-project.py --project-dir "<项目路径>"
 ```
 
-v3.0 核心变化：Agent 协议 + 质量门控合并到 `.claude/CLAUDE.md`（系统提示层，永不压缩），新增滚动上下文快照和 AutoLoop 外围循环脚本。
+v4.0 核心变化：各角色协议拆分为独立 `.claude/agents/*.md` 子代理文件，Leader 主模板精简至 ~800 行；Verifier/Reviewer 通过 tools 字段实现工具级权限控制（无 Write/Edit）；新增 `scripts/update-task-field.py` 白名单写入脚本。
 
-详见 [USER-GUIDE.md § 十、从 v2.6 升级到 v3.0](USER-GUIDE.md#十从-v26-升级到-v30)。
+详见 [USER-GUIDE.md](USER-GUIDE.md)。
 
 ### 新项目初始化
 
@@ -87,15 +87,30 @@ dev-framework/
 ├── requirements.txt            # Python 依赖声明
 ├── .gitignore                  # Git 忽略规则
 │
+├── .claude/
+│   └── agents/                 # v4.0 子代理协议文件
+│       ├── analyst.md          # Analyst 角色协议
+│       ├── developer.md        # Developer 角色协议
+│       ├── verifier.md         # Verifier 角色协议（只读工具）
+│       ├── reviewer.md         # Reviewer 角色协议（只读工具）
+│       └── verify-reviewer.md  # Verify-Reviewer 角色协议
+│
 ├── templates/                  # 模板文件
 │   ├── project/                # 项目级模板
-│   │   ├── CLAUDE.md.tmpl      # 项目配置模板（v3.0 精简版）
-│   │   ├── CLAUDE-framework.md.tmpl  # v3.0 新增：合并版框架运行时手册模板
-│   │   ├── context-snapshot.md.tmpl  # v3.0 新增：滚动上下文快照模板
+│   │   ├── CLAUDE.md.tmpl      # 项目配置模板
+│   │   ├── CLAUDE-framework.md.tmpl  # Leader 主模板（v4.0 精简至 ~800 行）
+│   │   ├── context-snapshot.md.tmpl  # 滚动上下文快照模板
 │   │   ├── run-config.yaml.tmpl     # 运行配置模板（init-project.py 优先复制此文件）
 │   │   ├── ARCHITECTURE.md.tmpl
 │   │   ├── progress.md.tmpl         # (参考模板，由 Agent 手动创建)
 │   │   └── session-ledger.md.tmpl   # (参考模板，由 Agent 手动创建)
+│   ├── agents/                 # 子代理模板（注入到项目 .claude/agents/）
+│   │   ├── _shared-rules.md    # 共享规则（追加到每个子代理末尾）
+│   │   ├── analyst.md          # Analyst 子代理模板
+│   │   ├── developer.md        # Developer 子代理模板
+│   │   ├── verifier.md         # Verifier 子代理模板
+│   │   ├── reviewer.md         # Reviewer 子代理模板
+│   │   └── verify-reviewer.md  # Verify-Reviewer 子代理模板
 │   ├── tasks/                  # 任务模板（按变更类型）
 │   │   ├── feature.yaml.tmpl   # 也用作 infrastructure 类型的基础模板
 │   │   ├── bug-fix.yaml.tmpl
@@ -125,8 +140,9 @@ dev-framework/
 │   ├── estimate-tasks.py       # 任务拆分规模估算
 │   ├── generate-report.py      # 生成迭代报告
 │   ├── session-manager.py      # Session 状态管理
-│   ├── upgrade-project.py      # 升级已有项目（v2.6 → v3.0）
-│   ├── auto-loop-runner.py     # v3.0 新增：AutoLoop 外围循环脚本
+│   ├── upgrade-project.py      # 升级已有项目
+│   ├── auto-loop-runner.py     # AutoLoop 外围循环脚本
+│   ├── update-task-field.py    # v4.0 新增：Verifier/Reviewer 白名单写入脚本
 │   └── fw_utils.py             # 工具链检测 + 通用辅助函数
 │
 ├── reports/                    # 迭代报告输出目录
@@ -299,7 +315,7 @@ python dev-framework/scripts/estimate-tasks.py \
     --modules 5 --risk high --complexity moderate --mode iterate
 ```
 
-### AutoLoop 运行（v3.0 新增）
+### AutoLoop 运行
 
 ```bash
 # 启动 AutoLoop 外围循环
@@ -312,7 +328,7 @@ python dev-framework/scripts/auto-loop-runner.py \
 ### 项目升级
 
 ```bash
-# 升级已有项目（v2.6 → v3.0）
+# 升级已有项目到 v4.0
 python dev-framework/scripts/upgrade-project.py \
     --project-dir "<项目路径>" \
     --dry-run
@@ -329,7 +345,7 @@ python dev-framework/scripts/upgrade-project.py \
 | 文档 | 内容 |
 |------|------|
 | [FRAMEWORK-SPEC.md](FRAMEWORK-SPEC.md) | 框架规格书（核心文档，完整流程定义） |
-| [ARCHITECTURE.md](ARCHITECTURE.md) | 架构决策记录（13 条 ADR） |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | 架构决策记录（15 条 ADR） |
 | [USER-GUIDE.md](USER-GUIDE.md) | 使用指导手册（场景示例 + FAQ） |
 | [框架全景分析报告](reports/framework-analysis.md) | 目录结构、文件关系图、流程图、状态机、脚本调用链（推荐首次阅读） |
 

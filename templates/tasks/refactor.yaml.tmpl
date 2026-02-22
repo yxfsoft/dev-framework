@@ -39,6 +39,15 @@ acceptance_criteria:
     - id: "{{TASK_ID}}-AC3"
       desc: "代码质量指标改善"
       status: FAIL
+  # --- 以下维度按需填写（不适用的维度删除该行）---
+  # robustness:
+  #   - id: "{{TASK_ID}}-ACx"
+  #     desc: "错误输入/边界条件处理正确"
+  #     status: FAIL
+  # ux_states: []        # UX 状态覆盖
+  # ux_interaction: []   # UX 交互验收
+  # security: []         # 安全验收
+  # observability: []    # 可观测性验收
 
 # 回归测试（重构的核心保障）
 regression_test: "运行全量 L1 + L2，零测试代码修改，结果 = 基线"

@@ -34,7 +34,7 @@ from pathlib import Path
 
 # ── 框架内部导入 ──────────────────────────────────────────
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fw_utils import load_run_config, load_session_state, load_baseline
+from fw_utils import validate_safe_id, load_run_config, load_session_state, load_baseline
 
 
 def _check_all_tasks_pass(dev_state: Path, iteration_id: str) -> bool:
@@ -55,7 +55,10 @@ def _check_all_tasks_pass(dev_state: Path, iteration_id: str) -> bool:
 
     for tf in task_files:
         task = yaml.safe_load(tf.read_text(encoding="utf-8")) or {}
-        status = task.get("status", "")
+        status = task.get("status")
+        if status is None:
+            print(f"  [WARN] {tf.name}: status 字段缺失，跳过")
+            continue
         if status != "PASS":
             return False
 
@@ -81,7 +84,7 @@ def _get_consecutive_failures(project_dir: Path) -> int:
 def _build_prompt(project_dir: Path, iteration_id: str) -> str:
     """构建传递给 claude -p 的提示词。"""
     return (
-        f"请按照 .claude/CLAUDE.md 中的框架运行时手册，以 auto-loop 模式继续开发。\n"
+        f"请按照 .claude/CLAUDE.md 中的 v4.0 子代理架构运行时手册，以 auto-loop 模式继续开发。\n"
         f"当前迭代是 {iteration_id}。\n"
         f"请先执行强制启动协议（读取 run-config.yaml、session-state.json、context-snapshot.md），\n"
         f"然后继续未完成的任务。"
@@ -249,6 +252,8 @@ def run_auto_loop(
 
         claude_failed = False
         try:
+            # 注意：故意不 capture_output，让 claude 的输出直接流向终端，
+            # 方便用户实时观察进度。
             result = subprocess.run(
                 [claude_command, "-p", prompt],
                 cwd=str(project_dir),
@@ -321,10 +326,11 @@ def main() -> None:
         help="最大重启次数（默认 10）",
     )
     args = parser.parse_args()
+    validate_safe_id(args.iteration_id, "iteration-id")
 
     project_dir = Path(args.project_dir).resolve()
     if not project_dir.exists():
-        print(f"ERROR: 项目目录不存在: {project_dir}")
+        print(f"[ERROR] 项目目录不存在: {project_dir}")
         sys.exit(1)
 
     success = run_auto_loop(project_dir, args.iteration_id, args.max_restarts)

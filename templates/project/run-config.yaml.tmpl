@@ -32,7 +32,7 @@ toolchain:
 # 但 phase-gate.py 门控检查不变（仍强制执行所有转换检查）。
 # 可选值：
 #   "standard"    → 完整 5 Phase（Verify 和 Review 分开执行）
-#   "lightweight" → 合并 Phase 3.5（独立验收）+ Phase 4（Verify+Review 由同一 Agent 执行）
+#   "lightweight" → 合并 Phase 3.5（独立验收）+ Phase 4（Verify+Review 由 verify-reviewer 子代理执行）
 #                   条件：CR 数 ≤ 5 或 all CR are enhancement/bug_fix
 # 注意：lightweight 模式必须在 decisions.md 中声明放弃了哪些检查
 iteration_mode: "standard"

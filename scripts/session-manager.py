@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -31,8 +32,23 @@ from fw_utils import PHASE_ORDER
 try:
     import yaml
 except ImportError:
-    print("ERROR: PyYAML 未安装。运行: pip install PyYAML>=6.0")
+    print("[ERROR] PyYAML 未安装。运行: pip install PyYAML>=6.0")
     sys.exit(1)
+
+
+def _load_tasks(tasks_dir: Path) -> list[dict]:
+    """加载指定目录下的所有任务 YAML 文件，返回字典列表。"""
+    tasks: list[dict] = []
+    if not tasks_dir.exists():
+        return tasks
+    for f in sorted(tasks_dir.glob("*.yaml")):
+        try:
+            task = yaml.safe_load(f.read_text(encoding="utf-8"))
+            if task:
+                tasks.append(task)
+        except Exception as e:
+            print(f"  WARN: 解析 {f} 失败: {e}", file=sys.stderr)
+    return tasks
 
 
 def validate_phase_transition(current: str, target: str) -> tuple[bool, str]:
@@ -67,7 +83,7 @@ def cmd_status(project_dir: Path) -> None:
     try:
         state = json.loads(state_path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError) as e:
-        print(f"ERROR: session-state.json 读取/解析失败: {e}")
+        print(f"[ERROR] session-state.json 读取/解析失败: {e}")
         return
 
     print(f"Session: {state.get('session_id', '?')}")
@@ -114,7 +130,7 @@ def cmd_checkpoint(project_dir: Path) -> None:
     try:
         state = json.loads(state_path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError) as e:
-        print(f"ERROR: session-state.json 读取/解析失败: {e}")
+        print(f"[ERROR] session-state.json 读取/解析失败: {e}")
         return
     iteration_id = state.get("current_iteration", "unknown")
     cp_dir = dev_state / iteration_id / "checkpoints"
@@ -123,10 +139,9 @@ def cmd_checkpoint(project_dir: Path) -> None:
     # 找到下一个检查点编号（取现有最大编号+1，避免删除后编号冲突）
     existing = sorted(cp_dir.glob("cp-*.md"))
     if existing:
-        import re as _re
         nums = []
         for f in existing:
-            m = _re.search(r"cp-(\d+)", f.stem)
+            m = re.search(r"cp-(\d+)", f.stem)
             if m:
                 nums.append(int(m.group(1)))
         next_num = max(nums) + 1 if nums else 1
@@ -136,15 +151,7 @@ def cmd_checkpoint(project_dir: Path) -> None:
 
     # 加载任务
     tasks_dir = dev_state / iteration_id / "tasks"
-    tasks = []
-    if tasks_dir.exists():
-        for f in sorted(tasks_dir.glob("*.yaml")):
-            try:
-                task = yaml.safe_load(f.read_text(encoding="utf-8"))
-                if task:
-                    tasks.append(task)
-            except Exception as e:
-                print(f"  WARN: 解析 {f} 失败: {e}", file=sys.stderr)
+    tasks = _load_tasks(tasks_dir)
 
     # 生成检查点
     now = datetime.now(timezone.utc).isoformat()
@@ -205,7 +212,7 @@ def cmd_checkpoint(project_dir: Path) -> None:
         in_progress_list = ", ".join(t.get("id", "?") for t in in_progress_tasks) or "无"
         pending_list = ", ".join(t.get("id", "?") for t in pending_tasks) or "无"
 
-        # Verifier/Reviewer 状态统计
+        # verifier/reviewer 子代理状态统计
         ready_verify = [t for t in tasks if t.get("status") == "ready_for_verify"]
         ready_review = [t for t in tasks if t.get("status") == "ready_for_review"]
         rework_tasks = [t for t in tasks if t.get("status") == "rework"]
@@ -227,7 +234,7 @@ def cmd_checkpoint(project_dir: Path) -> None:
             f"- 已完成: {completed_list}\n"
             f"- 进行中: {in_progress_list}\n"
             f"- 待开始: {pending_list}\n\n"
-            f"## Verifier/Reviewer 状态\n"
+            f"## verifier/reviewer 子代理状态\n"
             f"- 等待验收 (ready_for_verify): {ready_verify_list}\n"
             f"- 等待审查 (ready_for_review): {ready_review_list}\n"
             f"- 返工中 (rework): {rework_list}\n"
@@ -266,9 +273,9 @@ def determine_next_action(state: dict, tasks: list[dict]) -> str:
     if rework:
         return f"优先处理返工任务: {rework[0].get('id', '?')}"
     if ready_verify:
-        return f"执行 Verifier 验收: {', '.join(t.get('id', '?') for t in ready_verify)}"
+        return f"执行 verifier 子代理验收: {', '.join(t.get('id', '?') for t in ready_verify)}"
     if ready_review:
-        return f"执行 Reviewer 审查: {', '.join(t.get('id', '?') for t in ready_review)}"
+        return f"执行 reviewer 子代理审查: {', '.join(t.get('id', '?') for t in ready_review)}"
     if pending:
         return f"认领下一个任务: {pending[0].get('id', '?')}"
 
@@ -311,22 +318,14 @@ def cmd_resume(project_dir: Path) -> None:
     try:
         state = json.loads(state_path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError) as e:
-        print(f"ERROR: session-state.json 读取/解析失败: {e}")
+        print(f"[ERROR] session-state.json 读取/解析失败: {e}")
         return
     iteration_id = state.get("current_iteration", "unknown")
     iter_dir = dev_state / iteration_id
 
     # 加载任务
-    tasks = []
     tasks_dir = iter_dir / "tasks"
-    if tasks_dir.exists():
-        for f in sorted(tasks_dir.glob("*.yaml")):
-            try:
-                task = yaml.safe_load(f.read_text(encoding="utf-8"))
-                if task:
-                    tasks.append(task)
-            except Exception:
-                pass
+    tasks = _load_tasks(tasks_dir)
 
     progress = state.get("progress", {})
     next_action = determine_next_action(state, tasks)
@@ -418,29 +417,29 @@ def cmd_ledger(project_dir: Path) -> None:
     try:
         state = json.loads(state_path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError) as e:
-        print(f"ERROR: session-state.json 读取/解析失败: {e}")
+        print(f"[ERROR] session-state.json 读取/解析失败: {e}")
         return
     iteration_id = state.get("current_iteration", "unknown")
     ledger_dir = dev_state / iteration_id / "ledger"
     ledger_dir.mkdir(parents=True, exist_ok=True)
 
-    # 确定编号
+    # 确定编号（取现有最大编号+1，避免删除后编号冲突）
     now = datetime.now(timezone.utc)
     date_str = now.strftime("%Y%m%d")
     existing = sorted(ledger_dir.glob(f"session-{date_str}-*.md"))
-    seq = len(existing) + 1
+    if existing:
+        nums = []
+        for f in existing:
+            m = re.search(r"session-\d{8}-(\d+)", f.stem)
+            if m:
+                nums.append(int(m.group(1)))
+        seq = max(nums) + 1 if nums else 1
+    else:
+        seq = 1
 
     # 加载任务
     tasks_dir = dev_state / iteration_id / "tasks"
-    tasks = []
-    if tasks_dir.exists():
-        for f in sorted(tasks_dir.glob("*.yaml")):
-            try:
-                task = yaml.safe_load(f.read_text(encoding="utf-8"))
-                if task:
-                    tasks.append(task)
-            except Exception as e:
-                print(f"  WARN: 解析 {f} 失败: {e}", file=sys.stderr)
+    tasks = _load_tasks(tasks_dir)
 
     # 生成 ledger 内容
     content = f"# Session Ledger — {date_str}-{seq:02d}\n\n"
@@ -484,7 +483,7 @@ def main() -> None:
     args = parser.parse_args()
     project_dir = Path(args.project_dir).resolve()
     if not project_dir.is_dir():
-        print(f"ERROR: --project-dir 目录不存在: {project_dir}")
+        print(f"[ERROR] --project-dir 目录不存在: {project_dir}")
         sys.exit(1)
 
     commands = {

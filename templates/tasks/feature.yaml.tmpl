@@ -33,7 +33,7 @@ design:
   config_params:
     - "{{CONFIG_KEY}}: {{CONFIG_VALUE}}  # {{COMMENT}}"
 
-# 受影响文件（Analyst 填写）
+# 受影响文件（analyst 子代理填写）
 affected_files:
   - "{{FILE_PATH_1}}"
 
@@ -46,6 +46,19 @@ acceptance_criteria:
     - id: "{{TASK_ID}}-AC2"
       desc: "{{CRITERION_2}}"
       status: FAIL
+  # --- 以下维度按需填写（不适用的维度删除该行）---
+  # robustness:
+  #   - id: "{{TASK_ID}}-ACx"
+  #     desc: "错误输入/边界条件处理正确"
+  #     status: FAIL
+  # performance:
+  #   - id: "{{TASK_ID}}-ACx"
+  #     desc: "响应时间/吞吐量符合要求"
+  #     status: FAIL
+  # ux_states: []        # UX 状态覆盖
+  # ux_interaction: []   # UX 交互验收
+  # security: []         # 安全验收
+  # observability: []    # 可观测性验收
 
 # 回归测试
 regression_test: "运行全量 L1，结果 ≥ 基线"
@@ -59,7 +72,7 @@ retries: 0
 # 依赖
 depends: []
 
-# 执行记录（Developer/Verifier/Reviewer 填写）
+# 执行记录（developer/verifier/reviewer 子代理填写）
 commits: []
 notes: ""
 decisions_ref: []

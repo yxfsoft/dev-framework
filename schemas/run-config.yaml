@@ -59,7 +59,7 @@ fields:
     description: |
       迭代模式。当前仅文档层面支持。
       standard = 完整 5 Phase（Verify 和 Review 分开执行）
-      lightweight = 合并 Phase 3.5+4（Verify+Review 由同一 Agent 执行）
+      lightweight = 合并 Phase 3.5+4（Verify+Review 由 verify-reviewer 子代理执行）
 
   hooks:
     type: object

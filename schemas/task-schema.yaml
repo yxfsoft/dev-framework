@@ -162,8 +162,8 @@ fields:
     enum:
       - pending            # 待认领
       - in_progress        # 开发中
-      - ready_for_verify   # 等待验收（Verifier 执行 L0 验收 + 证据收集）
-      - ready_for_review   # 等待审查（Reviewer 代码审查 + 裁决）
+      - ready_for_verify   # 等待验收（verifier 子代理执行 L0 验收 + 证据收集）
+      - ready_for_review   # 等待审查（reviewer 子代理代码审查 + 裁决）
       - PASS               # 审查通过（终态，大写以区分）
       - rework             # 被打回
       - failed             # 超过重试上限
@@ -188,9 +188,9 @@ fields:
       - committing         # git commit
       - ready_for_verify   # 已提交验收
     description: |
-      当前执行步骤（in_progress 时由 Developer 更新）。
+      当前执行步骤（in_progress 时由 developer 子代理更新）。
       每个 Step 开始时必须先更新此字段，再执行操作。
-      用于上下文压缩后恢复执行进度。详见 Developer 协议 §二。
+      用于上下文压缩后恢复执行进度。详见 developer 子代理协议 §二。
 
   # 可选字段
   owner:
@@ -200,7 +200,7 @@ fields:
   retries:
     type: integer
     default: 0
-    description: "重试次数（每次 rework 时自增，由 Verifier/Reviewer 标记 rework 时更新）"
+    description: "重试次数（每次 rework 时自增，由 verifier/reviewer 子代理标记 rework 时更新）"
 
   max_retries:
     type: integer
@@ -223,13 +223,13 @@ fields:
 
   notes:
     type: string
-    description: "备注（Developer 填写已读文件等信息）"
+    description: "备注（developer 子代理填写已读文件等信息）"
 
   done_evidence:
     type: object
     # nullable: 任务创建初期可为 null，模板建议预填空结构 { tests: [], logs: [], notes: [] }
     nullable: true
-    description: "验收证据归档（Verifier 填写，Developer 不可修改）"
+    description: "验收证据归档（verifier 子代理填写，developer 子代理不可修改）"
     properties:
       tests:
         type: array
